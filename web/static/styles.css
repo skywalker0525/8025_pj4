@@ -1,0 +1,275 @@
+:root {
+  background: #eef1f4;
+  color: #18202a;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  min-height: 100vh;
+  padding: 24px;
+}
+
+header {
+  align-items: end;
+  display: flex;
+  justify-content: space-between;
+  margin: 0 auto 22px;
+  max-width: 1280px;
+}
+
+h1, h2, p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 32px;
+  font-weight: 750;
+}
+
+header p {
+  color: #55616f;
+  margin-top: 6px;
+}
+
+button {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #cdd5df;
+  border-radius: 6px;
+  color: #18202a;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 680;
+  gap: 8px;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 14px;
+}
+
+button:hover {
+  background: #f7f9fb;
+}
+
+.primary {
+  background: #176b5d;
+  border-color: #176b5d;
+  color: #ffffff;
+}
+
+.primary:hover {
+  background: #135c50;
+}
+
+.connection {
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 720;
+  padding: 8px 12px;
+}
+
+.online {
+  background: #d9f5e8;
+  color: #0a6b3e;
+}
+
+.offline {
+  background: #ffe1df;
+  color: #9b1c16;
+}
+
+.workspace {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(12, 1fr);
+  margin: 0 auto;
+  max-width: 1280px;
+}
+
+.panel {
+  background: #ffffff;
+  border: 1px solid #dbe1e8;
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(21, 35, 49, 0.06);
+  grid-column: span 4;
+  padding: 18px;
+}
+
+.command-panel,
+.camera-panel,
+.telemetry-grid,
+.events {
+  grid-column: span 6;
+}
+
+.panel-title {
+  align-items: center;
+  display: flex;
+  gap: 9px;
+  margin-bottom: 14px;
+}
+
+.panel-title h2,
+.events h2 {
+  font-size: 17px;
+  font-weight: 760;
+}
+
+.mission-state {
+  background: #16212d;
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 22px;
+  font-weight: 780;
+  margin-bottom: 14px;
+  padding: 14px;
+}
+
+.button-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.route {
+  color: #55616f;
+  display: grid;
+  font-size: 13px;
+  gap: 5px;
+  margin-top: 14px;
+}
+
+#camera-stream {
+  aspect-ratio: 4 / 3;
+  background: #111820;
+  border-radius: 6px;
+  display: block;
+  object-fit: contain;
+  width: 100%;
+}
+
+.drive-pad {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.drive-pad button:first-child,
+.drive-pad button:last-child {
+  grid-column: 1 / -1;
+}
+
+.stop {
+  background: #a52622;
+  border-color: #a52622;
+  color: #ffffff;
+}
+
+label {
+  color: #475360;
+  display: grid;
+  font-size: 14px;
+  font-weight: 680;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+input[type="range"] {
+  width: 100%;
+}
+
+.telemetry-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.metric {
+  border: 1px solid #e2e8ef;
+  border-radius: 6px;
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.metric:first-child {
+  margin-top: 0;
+}
+
+.metric span {
+  color: #647182;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.metric strong {
+  color: #18202a;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: #647182 !important;
+  font-size: 13px !important;
+}
+
+.safety.ok {
+  border-color: #9bd9bf;
+}
+
+.safety.danger {
+  border-color: #e38b84;
+}
+
+.safety p,
+.events p {
+  background: #f5f7fa;
+  border-radius: 6px;
+  color: #3a4654;
+  font-size: 14px;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+  padding: 9px 10px;
+}
+
+@media (max-width: 920px) {
+  header {
+    align-items: start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .panel,
+  .command-panel,
+  .camera-panel,
+  .telemetry-grid,
+  .events {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 560px) {
+  main {
+    padding: 14px;
+  }
+
+  h1 {
+    font-size: 24px;
+  }
+
+  .button-grid,
+  .telemetry-grid {
+    grid-template-columns: 1fr;
+  }
+}

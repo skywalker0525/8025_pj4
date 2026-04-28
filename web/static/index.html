@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Construction Robot Digital Twin</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>Construction Robot Digital Twin</h1>
+          <p>Local ROS2 · Gazebo · Nav2 dashboard</p>
+        </div>
+        <div id="connection" class="connection offline">Bridge offline</div>
+      </header>
+
+      <section class="workspace">
+        <div class="panel command-panel">
+          <div class="panel-title"><span>◎</span><h2>Mission Control</h2></div>
+          <div id="mission-state" class="mission-state">WAITING</div>
+          <div class="button-grid">
+            <button class="primary" data-command="START_AUTO">▶ Start Auto</button>
+            <button data-command="STOP">■ Stop</button>
+            <button data-command="RESET">↻ Reset</button>
+          </div>
+          <div class="route">
+            <span id="point-a">A (--, --)</span>
+            <span id="point-b">B (--, --)</span>
+            <span id="target">Target (--, --)</span>
+          </div>
+        </div>
+
+        <div class="panel camera-panel">
+          <div class="panel-title"><span>◉</span><h2>Camera Stream</h2></div>
+          <img id="camera-stream" src="/camera/stream" alt="Robot camera stream" />
+        </div>
+
+        <div class="panel">
+          <div class="panel-title"><span>✥</span><h2>Manual Drive</h2></div>
+          <div class="drive-pad">
+            <button data-drive="forward">Forward</button>
+            <button data-drive="left">Left</button>
+            <button class="stop" data-drive="stop">Stop</button>
+            <button data-drive="right">Right</button>
+            <button data-drive="reverse">Reverse</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title"><span>◌</span><h2>Camera Gimbal</h2></div>
+          <label>
+            Pan <span id="pan-value">0.00</span> rad
+            <input id="pan" type="range" min="-3.14" max="3.14" step="0.01" value="0" />
+          </label>
+          <label>
+            Tilt <span id="tilt-value">0.00</span> rad
+            <input id="tilt" type="range" min="-0.9" max="0.7" step="0.01" value="0" />
+          </label>
+        </div>
+
+        <div class="panel telemetry-grid">
+          <div class="metric"><span>Pose x/y/yaw</span><strong id="pose">--</strong></div>
+          <div class="metric"><span>Odom speed</span><strong id="velocity">--</strong></div>
+          <div class="metric"><span>Cmd speed</span><strong id="cmd-velocity">--</strong></div>
+          <div class="metric"><span>Nearest obstacle</span><strong id="obstacle">--</strong></div>
+          <div class="metric"><span>Orbit progress</span><strong id="orbit-progress">--</strong></div>
+          <div class="metric"><span>Radius error</span><strong id="radius-error">--</strong></div>
+        </div>
+
+        <div id="safety-panel" class="panel safety ok">
+          <div class="panel-title"><span>△</span><h2>Safety Constraints</h2></div>
+          <div id="warnings"><p>All monitored constraints nominal.</p></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title"><span>▣</span><h2>Video Capture</h2></div>
+          <div class="metric"><span>Recording</span><strong id="recording">No</strong></div>
+          <div class="metric"><span>Output</span><strong id="video-path" class="muted">Not saved yet</strong></div>
+        </div>
+
+        <div class="panel events">
+          <h2>Event Log</h2>
+          <div id="events"><p>No events yet.</p></div>
+        </div>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

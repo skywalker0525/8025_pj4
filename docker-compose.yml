@@ -1,0 +1,21 @@
+services:
+  ros_humble_sim:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: ros_humble_orbit_demo
+    network_mode: host
+    ipc: host
+    stdin_open: true
+    tty: true
+    environment:
+      DISPLAY: ${DISPLAY}
+      QT_X11_NO_MITSHM: "1"
+      XAUTHORITY: /tmp/.docker.xauth
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    volumes:
+      - .:/ws
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${HOME}/.Xauthority:/tmp/.docker.xauth:rw
+    working_dir: /ws
+    command: ["sleep", "infinity"]

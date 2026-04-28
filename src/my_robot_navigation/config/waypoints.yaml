@@ -1,0 +1,35 @@
+points:
+  A: {x: -3.8, y: -3.6, yaw: 0.0}
+  B: {x: 0.85, y: 1.2, yaw: 0.0}
+  C: {x: -2.9, y: 3.5, yaw: -0.2}
+  D: {x: 3.5, y: -3.2, yaw: 2.8}
+
+target_object:
+  x: 2.1
+  y: 1.2
+  z: 0.75
+  radius: 0.38
+
+orbit:
+  radius: 1.25
+  linear_speed: 0.14
+  image_center_tolerance: 0.1
+  camera_height: 0.43
+
+safety:
+  min_obstacle_distance: 0.45
+  warning_obstacle_distance: 0.75
+  max_linear_speed: 0.35
+  max_angular_speed: 1.2
+  max_orbit_radius_error: 0.35
+  pan_limit: 3.14159
+  tilt_lower_limit: -0.9
+  tilt_upper_limit: 0.7
+
+video:
+  fps: 20
+  output_dir: ~/ros_videos
+
+frames:
+  target_frame: map
+  base_frame: base_link
