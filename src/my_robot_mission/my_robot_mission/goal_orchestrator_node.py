@@ -1,12 +1,13 @@
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped, Twist
+import math
 from nav2_msgs.action import NavigateToPose
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Empty, String
+from std_msgs.msg import String
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from my_robot_mission.utils import load_yaml_file, yaw_to_quaternion
@@ -22,9 +23,13 @@ class GoalOrchestratorNode(Node):
             raise RuntimeError('waypoints_file parameter is required.')
         cfg = load_yaml_file(waypoints_file)
         self.goal_b = cfg['points']['B']
+        self.apriltag_target = cfg.get('apriltag_target', {})
         frames = cfg.get('frames', {})
         self.target_frame = frames.get('target_frame', 'map')
         self.base_frame = frames.get('base_frame', 'base_link')
+        self.tag_x = float(self.apriltag_target.get('x', self.goal_b['x']))
+        self.tag_y = float(self.apriltag_target.get('y', self.goal_b['y']))
+        self.tag_completion_radius = float(self.apriltag_target.get('completion_radius', 1.4))
 
         qos = QoSProfile(
             depth=1,
@@ -37,9 +42,6 @@ class GoalOrchestratorNode(Node):
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.goal_sub = self.create_subscription(PoseStamped, '/goal_pose', self.on_goal_pose, 10)
         self.command_sub = self.create_subscription(String, '/mission/command', self.on_command, 10)
-        self.orbit_complete_sub = self.create_subscription(
-            Empty, '/mission/orbit_complete', self.on_orbit_complete, 10
-        )
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -129,7 +131,7 @@ class GoalOrchestratorNode(Node):
         self.publish_state('WAIT_FOR_GOAL' if reset else 'STOPPED')
 
     def on_goal_pose(self, msg: PoseStamped) -> None:
-        if self.state in ('NAVIGATING', 'ORBITING', 'SAVING'):
+        if self.state == 'NAVIGATING':
             self.get_logger().warn('Ignoring new goal while mission is busy.')
             return
 
@@ -169,29 +171,39 @@ class GoalOrchestratorNode(Node):
 
         if result.status == GoalStatus.STATUS_SUCCEEDED:
             self.publish_event('NAVIGATION_SUCCEEDED')
-            self.publish_state('ORBITING')
+            self.publish_event('APRILTAG_REACHED')
+            self.publish_state('DONE')
         else:
             self.get_logger().warn(f'Navigation did not succeed. Status code: {result.status}')
             self.publish_event(f'NAVIGATION_FAILED_STATUS_{result.status}')
-            self.publish_state('WAIT_FOR_GOAL')
+            if self.robot_is_near_apriltag():
+                self.publish_event('NAVIGATION_FALLBACK_APRILTAG_REACHED')
+                self.publish_state('DONE')
+            else:
+                self.publish_state('WAIT_FOR_GOAL')
         self.goal_handle = None
 
-    def on_orbit_complete(self, _msg: Empty) -> None:
-        if self.state != 'ORBITING':
-            return
+    def robot_is_near_apriltag(self) -> bool:
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                self.target_frame,
+                self.base_frame,
+                rclpy.time.Time(),
+                timeout=Duration(seconds=0.5),
+            )
+        except TransformException as exc:
+            self.get_logger().warn(f'Cannot check AprilTag fallback pose: {exc}')
+            return False
 
-        self.publish_event('ORBIT_COMPLETE')
-        self.publish_state('SAVING')
-        if self.finish_timer is not None:
-            self.finish_timer.cancel()
-        self.finish_timer = self.create_timer(1.0, self.finish_saving)
-
-    def finish_saving(self) -> None:
-        if self.finish_timer is not None:
-            self.finish_timer.cancel()
-            self.finish_timer = None
-        self.publish_event('MISSION_DONE')
-        self.publish_state('DONE')
+        x = transform.transform.translation.x
+        y = transform.transform.translation.y
+        distance = math.hypot(x - self.tag_x, y - self.tag_y)
+        is_near = distance <= self.tag_completion_radius
+        self.get_logger().info(
+            f'AprilTag fallback distance: {distance:.2f} m '
+            f'(completion radius {self.tag_completion_radius:.2f} m).'
+        )
+        return is_near
 
 
 def main(args=None) -> None:

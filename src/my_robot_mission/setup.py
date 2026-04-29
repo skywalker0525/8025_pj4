@@ -22,6 +22,7 @@ setup(
     entry_points={
         'console_scripts': [
             'goal_orchestrator_node = my_robot_mission.goal_orchestrator_node:main',
+            'initial_pose_publisher_node = my_robot_mission.initial_pose_publisher_node:main',
             'manual_control_node = my_robot_mission.manual_control_node:main',
             'orbit_controller_node = my_robot_mission.orbit_controller_node:main',
             'telemetry_node = my_robot_mission.telemetry_node:main',

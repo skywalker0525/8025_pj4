@@ -1,12 +1,16 @@
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+    gui = LaunchConfiguration('gui')
+    rviz_enabled = LaunchConfiguration('rviz')
+
     sim_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             PathJoinSubstitution([
@@ -19,6 +23,7 @@ def generate_launch_description():
             'spawn_x': '-3.8',
             'spawn_y': '-3.6',
             'spawn_yaw': '0.0',
+            'gui': gui,
         }.items(),
     )
 
@@ -60,6 +65,7 @@ def generate_launch_description():
             ]),
         ],
         parameters=[{'use_sim_time': True}],
+        condition=IfCondition(rviz_enabled),
     )
 
     waypoints_file = PathJoinSubstitution([
@@ -79,32 +85,21 @@ def generate_launch_description():
         ],
     )
 
+    initial_pose_publisher = Node(
+        package='my_robot_mission',
+        executable='initial_pose_publisher_node',
+        name='initial_pose_publisher_node',
+        output='screen',
+        parameters=[
+            {'use_sim_time': True},
+            {'waypoints_file': waypoints_file},
+        ],
+    )
+
     goal_orchestrator = Node(
         package='my_robot_mission',
         executable='goal_orchestrator_node',
         name='goal_orchestrator_node',
-        output='screen',
-        parameters=[
-            {'use_sim_time': True},
-            {'waypoints_file': waypoints_file},
-        ],
-    )
-
-    orbit_controller = Node(
-        package='my_robot_mission',
-        executable='orbit_controller_node',
-        name='orbit_controller_node',
-        output='screen',
-        parameters=[
-            {'use_sim_time': True},
-            {'waypoints_file': waypoints_file},
-        ],
-    )
-
-    video_recorder = Node(
-        package='my_robot_mission',
-        executable='video_recorder_node',
-        name='video_recorder_node',
         output='screen',
         parameters=[
             {'use_sim_time': True},
@@ -135,13 +130,14 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        DeclareLaunchArgument('gui', default_value='true'),
+        DeclareLaunchArgument('rviz', default_value='true'),
         sim_launch,
         nav2,
         rviz,
         waypoint_markers,
+        initial_pose_publisher,
         goal_orchestrator,
-        orbit_controller,
-        video_recorder,
         manual_control,
         telemetry,
     ])

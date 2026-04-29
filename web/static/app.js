@@ -11,12 +11,10 @@ const els = {
   velocity: document.getElementById('velocity'),
   cmdVelocity: document.getElementById('cmd-velocity'),
   obstacle: document.getElementById('obstacle'),
-  orbitProgress: document.getElementById('orbit-progress'),
-  radiusError: document.getElementById('radius-error'),
+  tagTarget: document.getElementById('tag-target'),
+  tagRadius: document.getElementById('tag-radius'),
   safetyPanel: document.getElementById('safety-panel'),
   warnings: document.getElementById('warnings'),
-  recording: document.getElementById('recording'),
-  videoPath: document.getElementById('video-path'),
   events: document.getElementById('events'),
   pan: document.getElementById('pan'),
   tilt: document.getElementById('tilt'),
@@ -55,10 +53,8 @@ function updateTelemetry(data) {
   const pose = data.pose || {};
   const velocity = data.velocity || {};
   const commandVelocity = data.command_velocity || {};
-  const orbit = data.orbit || {};
-  const video = data.video || {};
   const points = data.points || {};
-  const target = data.target_object || {};
+  const tag = data.apriltag_target || {};
   const warnings = data.warnings || [];
   const events = data.events || [];
   const joints = data.joints || {};
@@ -66,15 +62,13 @@ function updateTelemetry(data) {
   els.missionState.textContent = data.mission_state || 'WAITING';
   els.pointA.textContent = `A (${fmt(points.A?.x)}, ${fmt(points.A?.y)})`;
   els.pointB.textContent = `B (${fmt(points.B?.x)}, ${fmt(points.B?.y)})`;
-  els.target.textContent = `Target (${fmt(target.x)}, ${fmt(target.y)})`;
+  els.target.textContent = `Tag (${fmt(tag.x)}, ${fmt(tag.y)})`;
   els.pose.textContent = `${fmt(pose.x)} / ${fmt(pose.y)} / ${fmt(pose.yaw)}`;
   els.velocity.textContent = `${fmt(velocity.linear)} m/s · ${fmt(velocity.angular)} rad/s`;
   els.cmdVelocity.textContent = `${fmt(commandVelocity.linear)} m/s · ${fmt(commandVelocity.angular)} rad/s`;
   els.obstacle.textContent = `${fmt(data.nearest_obstacle)} m`;
-  els.orbitProgress.textContent = `${Math.round((orbit.progress || 0) * 100)}%`;
-  els.radiusError.textContent = `${fmt(orbit.radius_error)} m`;
-  els.recording.textContent = video.recording ? 'Yes' : 'No';
-  els.videoPath.textContent = video.path || 'Not saved yet';
+  els.tagTarget.textContent = `${tag.family || 'tag36h11'} #${tag.id ?? 0}`;
+  els.tagRadius.textContent = `${fmt(tag.completion_radius)} m`;
 
   if (typeof joints.camera_pan_joint === 'number') {
     els.pan.value = joints.camera_pan_joint;

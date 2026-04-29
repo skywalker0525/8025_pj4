@@ -1,12 +1,16 @@
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+    gui = LaunchConfiguration('gui')
+    rviz_enabled = LaunchConfiguration('rviz')
+
     sim_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             PathJoinSubstitution([
@@ -19,6 +23,7 @@ def generate_launch_description():
             'spawn_x': '-3.8',
             'spawn_y': '-3.6',
             'spawn_yaw': '0.0',
+            'gui': gui,
         }.items(),
     )
 
@@ -43,19 +48,20 @@ def generate_launch_description():
     )
 
     rviz = Node(
-      package='rviz2',
-      executable='rviz2',
-      name='rviz2',
-      output='screen',
-      arguments=[
-          '-d',
-          PathJoinSubstitution([
-              FindPackageShare('my_robot_navigation'),
-              'rviz',
-              'nav_demo.rviz',
-          ]),
-      ],
-      parameters=[{'use_sim_time': True}],
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        output='screen',
+        arguments=[
+            '-d',
+            PathJoinSubstitution([
+                FindPackageShare('my_robot_navigation'),
+                'rviz',
+                'nav_demo.rviz',
+            ]),
+        ],
+        parameters=[{'use_sim_time': True}],
+        condition=IfCondition(rviz_enabled),
     )
 
     manual_control = Node(
@@ -81,6 +87,8 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        DeclareLaunchArgument('gui', default_value='true'),
+        DeclareLaunchArgument('rviz', default_value='true'),
         sim_launch,
         slam_toolbox,
         rviz,

@@ -1,8 +1,9 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, RegisterEventHandler, SetEnvironmentVariable
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import Command, EnvironmentVariable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
@@ -14,6 +15,19 @@ def generate_launch_description():
     spawn_x = LaunchConfiguration('spawn_x')
     spawn_y = LaunchConfiguration('spawn_y')
     spawn_yaw = LaunchConfiguration('spawn_yaw')
+    gui = LaunchConfiguration('gui')
+
+    gazebo_model_path = SetEnvironmentVariable(
+        name='GAZEBO_MODEL_PATH',
+        value=[
+            PathJoinSubstitution([
+                FindPackageShare('my_robot_sim'),
+                'models',
+            ]),
+            ':',
+            EnvironmentVariable('GAZEBO_MODEL_PATH', default_value=''),
+        ],
+    )
 
     robot_description = ParameterValue(
         Command([
@@ -59,6 +73,7 @@ def generate_launch_description():
                 'gzclient.launch.py',
             ])
         ]),
+        condition=IfCondition(gui),
     )
 
     spawn_robot = Node(
@@ -117,6 +132,8 @@ def generate_launch_description():
         DeclareLaunchArgument('spawn_x', default_value='-2.8'),
         DeclareLaunchArgument('spawn_y', default_value='-2.5'),
         DeclareLaunchArgument('spawn_yaw', default_value='0.0'),
+        DeclareLaunchArgument('gui', default_value='true'),
+        gazebo_model_path,
         gzserver,
         gzclient,
         robot_state_publisher,

@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="inspection_column">
+    <static>true</static>
+    <link name="link">
+      <collision name="collision">
+        <pose>0 0 0.75 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.38</radius>
+            <length>1.5</length>
+          </cylinder>
+        </geometry>
+      </collision>
+
+      <visual name="concrete_pillar_visual">
+        <pose>0 0 0 1.5708 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>model://inspection_column/meshes/concrete_pillar.obj</uri>
+            <scale>0.0178 0.006 0.0178</scale>
+          </mesh>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://inspection_column/materials/scripts</uri>
+            <uri>model://inspection_column/materials/textures</uri>
+            <name>InspectionColumn/Concrete</name>
+          </script>
+        </material>
+      </visual>
+
+      <visual name="apriltag_36h11_0">
+        <pose>-0.391 0 0.85 0 -1.5708 0</pose>
+        <geometry>
+          <plane>
+            <normal>0 0 1</normal>
+            <size>0.42 0.42</size>
+          </plane>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://inspection_column/materials/scripts</uri>
+            <uri>model://inspection_column/materials/textures</uri>
+            <name>InspectionColumn/AprilTag36h11Id0</name>
+          </script>
+          <ambient>1 1 1 1</ambient>
+          <diffuse>1 1 1 1</diffuse>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

@@ -24,6 +24,7 @@ class TelemetryNode(Node):
         self.safety = cfg.get('safety', {})
         self.points = cfg.get('points', {})
         self.target = cfg.get('target_object', {})
+        self.apriltag_target = cfg.get('apriltag_target', {})
 
         self.state = 'WAIT_FOR_GOAL'
         self.pose = {'x': 0.0, 'y': 0.0, 'yaw': 0.0}
@@ -144,6 +145,7 @@ class TelemetryNode(Node):
             'events': self.events,
             'points': self.points,
             'target_object': self.target,
+            'apriltag_target': self.apriltag_target,
         }
         self.telemetry_pub.publish(String(data=json.dumps(payload)))
 

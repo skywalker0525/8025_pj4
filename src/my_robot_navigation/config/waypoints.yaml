@@ -1,6 +1,6 @@
 points:
   A: {x: -3.8, y: -3.6, yaw: 0.0}
-  B: {x: 0.85, y: 1.2, yaw: 0.0}
+  B: {x: -1.5, y: 3.65, yaw: 1.5708}
   C: {x: -2.9, y: 3.5, yaw: -0.2}
   D: {x: 3.5, y: -3.2, yaw: 2.8}
 
@@ -9,6 +9,17 @@ target_object:
   y: 1.2
   z: 0.75
   radius: 0.38
+
+apriltag_target:
+  id: 0
+  family: tag36h11
+  x: -1.5
+  y: 4.93
+  z: 1.05
+  approach_x: -1.5
+  approach_y: 3.65
+  approach_yaw: 1.5708
+  completion_radius: 1.4
 
 orbit:
   radius: 1.25

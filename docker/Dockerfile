@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y \
     ros-humble-turtlebot3-msgs \
     tmux \
     ros-humble-xacro \
+    xvfb \
  && rm -rf /var/lib/apt/lists/*
 
 RUN pip3 install --no-cache-dir fastapi==0.110.0 "uvicorn[standard]==0.27.1"

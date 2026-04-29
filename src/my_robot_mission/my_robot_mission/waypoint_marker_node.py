@@ -1,6 +1,3 @@
-import math
-
-from geometry_msgs.msg import Point
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
@@ -98,32 +95,46 @@ class WaypointMarkerNode(Node):
         cylinder.color.a = 0.9
         marker_array.markers.append(cylinder)
 
-        orbit_ring = Marker()
-        orbit_ring.header.frame_id = self.frame_id
-        orbit_ring.header.stamp = cylinder.header.stamp
-        orbit_ring.ns = 'orbit_ring'
-        orbit_ring.id = marker_id
-        orbit_ring.type = Marker.LINE_STRIP
-        orbit_ring.action = Marker.ADD
-        orbit_ring.scale.x = 0.04
-        orbit_ring.color.r = 0.9
-        orbit_ring.color.g = 0.2
-        orbit_ring.color.b = 0.2
-        orbit_ring.color.a = 0.95
+        tag = self.cfg.get('apriltag_target', {})
+        if tag:
+            tag_marker = Marker()
+            tag_marker.header.frame_id = self.frame_id
+            tag_marker.header.stamp = cylinder.header.stamp
+            tag_marker.ns = 'apriltag_target'
+            tag_marker.id = marker_id
+            marker_id += 1
+            tag_marker.type = Marker.CUBE
+            tag_marker.action = Marker.ADD
+            tag_marker.pose.position.x = float(tag['x'])
+            tag_marker.pose.position.y = float(tag['y']) - 0.03
+            tag_marker.pose.position.z = float(tag.get('z', 1.05))
+            tag_marker.scale.x = 0.55
+            tag_marker.scale.y = 0.03
+            tag_marker.scale.z = 0.55
+            tag_marker.color.r = 0.1
+            tag_marker.color.g = 1.0
+            tag_marker.color.b = 0.45
+            tag_marker.color.a = 0.8
+            marker_array.markers.append(tag_marker)
 
-        cx = float(self.cfg['target_object']['x'])
-        cy = float(self.cfg['target_object']['y'])
-        radius = float(self.cfg['orbit']['radius'])
-        for idx in range(33):
-            angle = (2.0 * math.pi * idx) / 32.0
-            orbit_ring.points.append(
-                Point(
-                    x=cx + radius * math.cos(angle),
-                    y=cy + radius * math.sin(angle),
-                    z=0.05,
-                )
-            )
-        marker_array.markers.append(orbit_ring)
+            label = Marker()
+            label.header.frame_id = self.frame_id
+            label.header.stamp = cylinder.header.stamp
+            label.ns = 'apriltag_labels'
+            label.id = marker_id
+            marker_id += 1
+            label.type = Marker.TEXT_VIEW_FACING
+            label.action = Marker.ADD
+            label.pose.position.x = float(tag['x'])
+            label.pose.position.y = float(tag['y']) - 0.35
+            label.pose.position.z = float(tag.get('z', 1.05)) + 0.45
+            label.scale.z = 0.25
+            label.color.r = 0.75
+            label.color.g = 1.0
+            label.color.b = 0.8
+            label.color.a = 1.0
+            label.text = f"AprilTag {tag.get('id', 0)}"
+            marker_array.markers.append(label)
 
         self.marker_pub.publish(marker_array)
 

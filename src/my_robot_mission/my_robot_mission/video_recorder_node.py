@@ -53,7 +53,7 @@ class VideoRecorderNode(Node):
         previous_state = self.current_state
         self.current_state = msg.data
 
-        if previous_state == 'ORBITING' and self.current_state in ('SAVING', 'DONE', 'WAIT_FOR_GOAL'):
+        if previous_state == 'ORBITING' and self.current_state in ('SAVING', 'DONE', 'WAIT_FOR_GOAL', 'STOPPED'):
             self.close_writer()
 
     def on_image(self, msg: Image) -> None:
