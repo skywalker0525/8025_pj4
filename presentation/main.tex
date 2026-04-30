@@ -40,7 +40,7 @@
 
 \setbeamertemplate{background}{%
   \begin{tikzpicture}[remember picture,overlay]
-    \node[anchor=north east,xshift=-0.28cm,yshift=-0.16cm] at (current page.north east) {\hkulogo};
+    \node[anchor=north east,xshift=-0.28cm,yshift=-0.06cm] at (current page.north east) {\hkulogo};
   \end{tikzpicture}%
 }
 \addtobeamertemplate{frametitle}{}{%
@@ -56,14 +56,27 @@
 \date{April 30, 2026}
 
 \newcommand{\topic}[1]{\textcolor{siteblue}{\textbf{#1}}}
+\newcommand{\githubbadge}{%
+  \href{https://github.com/skywalker0525/8025_pj4}{%
+    \raisebox{-0.12cm}{\includegraphics[height=0.42cm]{figures/github_logo.png}}%
+    \hspace{0.35em}%
+    {\scriptsize\texttt{github.com/skywalker0525/8025\_pj4}}%
+  }%
+}
 
 \begin{document}
 
 \begin{frame}
   \titlepage
+  \begin{tikzpicture}[remember picture,overlay]
+    \node[anchor=north east,xshift=-0.28cm,yshift=-0.06cm] at (current page.north east) {\hkulogo};
+  \end{tikzpicture}
   \vspace{-0.8em}
   \begin{center}
     \small Four-wheel inspection robot, physics-based simulation, SLAM-ready map workflow, and browser-based operator interface.
+
+    \vspace{0.75em}
+    \githubbadge
   \end{center}
 \end{frame}
 
@@ -91,29 +104,31 @@
 \end{frame}
 
 \begin{frame}{Project Goal}
+  \small
   \begin{block}{Background}
-    Construction sites are dynamic, cluttered, and safety-critical. Autonomous mobile robots can support inspection work by navigating through site-like areas, checking target locations, and giving operators live feedback without sending people into every space manually.
+    Construction sites are dynamic, cluttered, and safety-critical. Autonomous mobile robots can support inspection by navigating site-like areas, checking target locations, and giving operators live feedback.
   \end{block}
 
   \begin{block}{Inspection task}
     The robot starts at point \topic{A}, autonomously navigates through a construction-like indoor environment, approaches a wall-mounted \topic{AprilTag}, and reports the mission as complete.
   \end{block}
 
+  \vspace{-0.25em}
   \begin{columns}[T,onlytextwidth]
-    \begin{column}{0.52\textwidth}
+    \begin{column}{0.57\textwidth}
       \begin{itemize}
         \item Mobile robot must obey physical and collision constraints.
         \item Operator can switch between automatic mission and manual control.
         \item Dashboard gives live feedback instead of relying only on RViz.
       \end{itemize}
     \end{column}
-    \begin{column}{0.42\textwidth}
+    \begin{column}{0.38\textwidth}
       \begin{block}{Task pipeline}
         \begin{enumerate}
           \item Start from A.
-          \item Plan around obstacles with Nav2.
-          \item Approach the wall AprilTag.
-          \item Report mission state as \texttt{DONE}.
+          \item Plan with Nav2.
+          \item Approach AprilTag.
+          \item Report \texttt{DONE}.
         \end{enumerate}
       \end{block}
     \end{column}
@@ -236,23 +251,27 @@
 \begin{frame}{SLAM and Map Workflow}
   \begin{columns}[T,onlytextwidth]
     \begin{column}{0.52\textwidth}
-      \includegraphics[width=\linewidth]{figures/map.png}
+      \includegraphics[width=\linewidth,height=0.69\textheight,keepaspectratio]{figures/map.png}
     \end{column}
     \begin{column}{0.45\textwidth}
+      \scriptsize
       \begin{block}{Mapping mode}
         \begin{itemize}
+          \setlength\itemsep{0.15em}
           \item Launch Gazebo with SLAM Toolbox
           \item Drive manually from the dashboard
           \item RViz shows the LiDAR-built \texttt{/map}
-          \item Save the map for later Nav2 runs
+          \item Save the map for Nav2
         \end{itemize}
       \end{block}
+      \vspace{-0.25em}
       \begin{block}{Navigation mode}
         \begin{itemize}
+          \setlength\itemsep{0.15em}
           \item Load \texttt{room\_map.yaml}
           \item AMCL estimates \texttt{map -> odom}
-          \item Diff-drive plugin publishes \texttt{odom -> base\_link}
-          \item Nav2 plans through global/local costmaps
+          \item Diff-drive publishes \texttt{odom -> base\_link}
+          \item Nav2 plans through costmaps
         \end{itemize}
       \end{block}
     \end{column}
@@ -357,7 +376,7 @@
 
   \vspace{0.8em}
   \begin{center}
-    \Large Next: recorded mission video.
+    \Large Next: \href{pj4.webm}{recorded mission video}.
   \end{center}
 \end{frame}
 
