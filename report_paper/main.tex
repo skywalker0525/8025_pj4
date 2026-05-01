@@ -47,7 +47,7 @@ Hong Kong, China\\
 \maketitle
 
 \begin{abstract}
-Construction inspection is still heavily dependent on manual site walks, visual judgement, and fragmented records. Mobile robots can make inspection more repeatable, but construction sites are cluttered, changing, and safety-critical, so an autonomous robot should first be evaluated in a controlled digital environment. This paper presents a ROS 2-based construction robot digital twin prototype for an indoor inspection task. The system combines Gazebo simulation, a four-wheel mobile robot model, LiDAR and RGB sensing, Nav2 autonomous navigation, SLAM-ready mapping, mission orchestration, and a browser-based FastAPI dashboard. The implemented task is to start from point A, navigate through a site-like room, approach a wall-mounted AprilTag target at point B, and report mission state and telemetry to an operator. The repository was reviewed at the package and node level to document the implemented architecture rather than only the demonstration outcome. The prototype shows how simulation, navigation, telemetry, and human supervision can be connected into an executable construction robot twin. It also exposes clear limits: the AprilTag is currently a known map target rather than a detected visual pose, the platform is a mobile inspection robot rather than a mobile manipulator, and the work has not been deployed on physical hardware.
+Construction inspection still relies on manual site walks, visual judgement, and records that are often separated from the actual work front. Mobile robots can make inspection more repeatable, but construction sites are cluttered, changing, and safety-critical, so autonomy should first be tested in a controlled digital environment. This paper presents a ROS 2-based construction robot digital twin prototype for an indoor inspection task. The system combines Gazebo simulation, a four-wheel mobile robot model, LiDAR and RGB sensing, Nav2 autonomous navigation, SLAM-ready mapping, mission orchestration, and a browser-based FastAPI dashboard. The implemented task is to start from point A, navigate through a site-like room, approach a wall-mounted AprilTag target at point B, and report mission state and telemetry to an operator. The codebase was reviewed at the package and node level to document the implemented architecture rather than only the final demonstration. The prototype connects simulation, navigation, telemetry, and human supervision into an executable construction robot twin. Its limits are also clear: the AprilTag is currently a known map target rather than a detected visual pose, the platform is a mobile inspection robot rather than a mobile manipulator, and the work has not been deployed on physical hardware.
 \end{abstract}
 
 \noindent\textbf{Keywords:} construction digital twin; construction robotics; ROS 2; Gazebo; Nav2; mobile robot inspection
@@ -60,7 +60,7 @@ The difficulty is that construction sites are not designed for robots. Floors ma
 
 This project implements that idea at prototype scale. It contains a ROS 2 workspace with separate packages for robot description, simulation, navigation, mission logic, and a local web dashboard. The robot is a four-wheel mobile inspection platform with LiDAR, camera, odometry, transforms, and a pan/tilt gimbal. The site is a Gazebo room with walls, material-like obstacles, barriers, a tool chest, an inspection column, and a wall-mounted AprilTag. The task is deliberately narrow: the robot starts at point A, navigates to the AprilTag approach point B, and reports the mission as complete.
 
-The contribution of this paper is not a new navigation algorithm. It is an integrated, reproducible digital twin architecture for construction robot inspection. The paper strengthens the construction background, reviews related research, documents the implemented codebase, and discusses what the prototype can and cannot claim. The report is written honestly: although the CIVIL 8025 Project 4 direction mentions mobile manipulation and MoveIt 2 as possible elements, the submitted repository implements a mobile inspection robot twin and does not implement an arm, MoveIt 2 planning, or real AprilTag pose estimation.
+The work is not presented as a new navigation algorithm. Its value is in the integration: a small but reproducible digital twin architecture for construction robot inspection, with simulation, navigation, mission logic, telemetry, and operator feedback working together. The discussion also keeps the scope explicit. Although the CIVIL 8025 Project 4 direction mentions mobile manipulation and MoveIt 2 as possible elements, this implementation is a mobile inspection robot twin and does not include an arm, MoveIt 2 planning, or real AprilTag pose estimation.
 
 \section{Literature Review}
 
@@ -91,7 +91,7 @@ Digital twin research in construction has moved beyond the idea of a 3D model. \
     \draw[arrow] (reason) -- (decision);
     \draw[arrow] (decision.south) -- ++(0,-0.7) -| (site.south);
   \end{tikzpicture}}
-  \caption{Online digital twin literature commonly frames the twin as a closed loop from asset state and sensing to model-based reasoning and operational decisions; this figure is redrawn as a synthesis from \citet{boje2020semantic}, \citet{jiang2021digital}, and \citet{madubuike2022review}.}
+  \caption{Digital twin literature commonly frames the twin as a closed loop from asset state and sensing to model-based reasoning and operational decisions; the structure is synthesized from \citet{boje2020semantic}, \citet{jiang2021digital}, and \citet{madubuike2022review}.}
   \label{fig:dt-literature}
 \end{figure}
 
@@ -120,7 +120,7 @@ Mobile robots are particularly relevant for progress monitoring and inspection. 
     \foreach \n in {mobility,perception,localization,safety,interface,records}
       \draw[arrow] (\n) -- (robot);
   \end{tikzpicture}}
-  \caption{Construction-robotics studies identify a recurring set of requirements around mobility, perception, navigation, safety, interfaces, and data records; this figure is redrawn from the themes reviewed by \citet{delgado2019robotics} and \citet{asadi2018vision}.}
+  \caption{Construction-robotics studies identify recurring requirements around mobility, perception, navigation, safety, interfaces, and data records; the diagram summarizes themes reviewed by \citet{delgado2019robotics} and \citet{asadi2018vision}.}
   \label{fig:robotics-literature}
 \end{figure}
 
@@ -128,11 +128,11 @@ Location and tracking research also supports this direction. \citet{teizer2008ul
 
 \subsection{Navigation, SLAM, and open robot software}
 
-ROS was introduced as an open-source robot software framework to support modular robot development and reuse \citep{quigley2009ros}. ROS 2 continues that idea with a communication layer suitable for distributed nodes, actions, transforms, sensors, and lifecycle-managed systems. This is why the project separates robot description, navigation, mission orchestration, telemetry, and web bridge responsibilities instead of writing one monolithic script.
+ROS was introduced as an open-source robot software framework to support modular robot development and reuse \citep{quigley2009ros}. ROS 2 continues that idea with a communication layer suitable for distributed nodes, actions, transforms, sensors, and lifecycle-managed systems \citep{ros2humble}. This is why the project separates robot description, navigation, mission orchestration, telemetry, and web bridge responsibilities instead of writing one monolithic script.
 
 For autonomous mobile robots, navigation is the operational core. The Nav2 stack provides localization, planning, control, costmaps, behavior trees, and recovery behaviours for ROS 2 robots \citep{macenski2020marathon, nav2humble}. This project uses Nav2's \texttt{NavigateToPose} action and costmap pipeline rather than writing a custom path planner. That design choice is appropriate for a digital twin prototype because the research question is system integration in a construction context, not low-level planner invention.
 
-SLAM is also relevant because construction layouts change. \citet{kohlbrecher2011slam} present a flexible SLAM system that supports mapping from laser scans. In this repository, SLAM Toolbox is included in a separate mapping launch workflow. The saved map is then loaded by Nav2 for normal navigation. This separation mirrors a practical construction workflow: map the environment, save a usable representation, then run inspection missions against that representation.
+SLAM is also relevant because construction layouts change. \citet{kohlbrecher2011slam} present a flexible SLAM system that supports mapping from laser scans. In this implementation, SLAM Toolbox is included in a separate mapping launch workflow. The saved map is then loaded by Nav2 for normal navigation. This separation mirrors a practical construction workflow: map the environment, save a usable representation, then run inspection missions against that representation.
 
 \subsection{Human supervision and telemetry}
 
@@ -142,9 +142,9 @@ The literature also points toward semantic and context-aware navigation. \citet{
 
 \section{Methodology}
 
-\subsection{Repository-level architecture}
+\subsection{System architecture}
 
-The repository was reviewed by reading the ROS packages, launch files, configuration files, mission nodes, web backend, and frontend dashboard. The implementation is organized into five main subsystems. The robot description package defines the URDF/Xacro robot, collisions, inertias, sensors, and gimbal controllers. The simulation package launches Gazebo and the indoor construction-like world. The navigation package contains Nav2 parameters, the static map, SLAM configuration, RViz configuration, and waypoint definitions. The mission package implements readiness checks, autonomous goal dispatch, manual control, telemetry, video recording support, and RViz markers. The web folder implements the FastAPI bridge and dashboard.
+The code was reviewed by reading the ROS packages, launch files, configuration files, mission nodes, web backend, and frontend dashboard. The implementation is organized into five main subsystems. The robot description package defines the URDF/Xacro robot, collisions, inertias, sensors, and gimbal controllers. The simulation package launches Gazebo and the indoor construction-like world, following the same ROS 2/Gazebo integration pattern described in the official simulation documentation \citep{ros2gazebo}. The navigation package contains Nav2 parameters, the static map, SLAM configuration, RViz configuration, and waypoint definitions. The mission package implements readiness checks, autonomous goal dispatch, manual control, telemetry, video recording support, and RViz markers. The web folder implements the FastAPI bridge and dashboard.
 
 Figure~\ref{fig:architecture} uses the same architecture diagram as the project presentation. The architecture is intentionally bidirectional at the operator layer: the dashboard displays telemetry, but it also sends commands back to the mission and manual control topics.
 
@@ -202,7 +202,7 @@ RViz is used as the engineering visualization layer. The waypoint marker node pu
 
 \begin{table}[htbp]
   \centering
-  \caption{Implemented modules and evidence found in the repository.}
+  \caption{Implemented modules and evidence found in the project files.}
   \label{tab:modules}
   \begin{tabularx}{\linewidth}{p{0.23\linewidth}X}
     \toprule
@@ -310,7 +310,7 @@ The prototype completed the intended demonstration workflow: a simulated robot w
     \includegraphics[width=\linewidth]{figures/gazebo_world_snapshot.png}
     \caption{Gazebo world screenshot from the recorded demonstration.}
   \end{subfigure}
-  \caption{Navigation evidence used by the digital twin. The 2D obstacles follow the repository's Gazebo world poses, and the trajectory shows the recorded A--B mission path.}
+  \caption{Navigation evidence used by the digital twin. The 2D obstacles follow the Gazebo world poses, and the trajectory shows the recorded A--B mission path.}
   \label{fig:route-map}
 \end{figure}
 
@@ -346,13 +346,13 @@ At the same time, the prototype should not be interpreted as a deployable site r
 
 Four limitations stand out. First, the AprilTag target is not used for visual pose estimation. The mission currently navigates to a known map coordinate and checks proximity to the stored tag position. Second, there is no manipulator arm or MoveIt 2 planning, so the prototype is not a mobile manipulator. Third, the web dashboard does not yet display the costmap or LiDAR scan directly, so RViz remains necessary for debugging. Fourth, the system has not been tested with real robot hardware.
 
-Future work should therefore focus on closing the loop between visual perception and navigation. AprilTag detection could estimate the final tag pose and support a short visual-servoing approach. The dashboard could display a simplified map, scan, and costmap overlay. A manipulator extension could add MoveIt 2 planning with construction obstacles represented as collision objects. Finally, physical deployment would require calibration, sensor noise handling, emergency stop hardware, and safety procedures for human-robot coexistence.
+Future work should first close the loop between visual perception and navigation. AprilTag detection could estimate the final tag pose and support a short visual-servoing approach. The dashboard could display a simplified map, scan, and costmap overlay. If the project is later extended into mobile manipulation, MoveIt 2 planning would need to be added with construction obstacles represented as collision objects. Physical deployment would also require calibration, sensor noise handling, emergency stop hardware, and safety procedures for human-robot coexistence.
 
 \section{Conclusions}
 
 This paper presented a ROS 2 construction robot digital twin prototype for mobile inspection. The project integrates Gazebo simulation, a robot model, Nav2 navigation, SLAM-ready mapping, mission logic, telemetry, RViz visualization, and a web dashboard. The system is grounded in construction digital twin literature because it links a virtual site, robot state, mission events, sensor streams, and operator decisions. It is also grounded in construction robotics literature because it focuses on inspection, navigation, sensing, and supervision rather than only visual animation.
 
-The main result is an executable and observable prototype. The robot can be commanded from the dashboard, navigates from point A to the AprilTag approach point B, and reports state through ROS topics, telemetry JSON, RViz markers, and browser UI elements. The most important engineering value is the clean separation of packages and the explicit handling of readiness, safety constraints, and telemetry. The main limitation is scope: this is a simulated mobile inspection robot twin, not a field-deployed mobile manipulator. Future work should add real AprilTag detection, richer dashboard map visualization, MoveIt 2 manipulation, and physical validation.
+The main result is an executable and observable prototype. The robot can be commanded from the dashboard, navigates from point A to the AprilTag approach point B, and reports state through ROS topics, telemetry JSON, RViz markers, and browser UI elements. The main engineering value is the clean separation of packages and the explicit handling of readiness, safety constraints, and telemetry. The main limitation is scope: this is a simulated mobile inspection robot twin, not a field-deployed mobile manipulator. Future work should add real AprilTag detection, richer dashboard map visualization, and physical validation before any stronger claim is made.
 
 \section*{Acknowledgements}
 

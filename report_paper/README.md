@@ -17,8 +17,6 @@ The script builds the LaTeX Docker image and writes:
 
 `output\CIVIL8025_Project4_Report_TianTan.pdf`
 
-If `media\mission.webm` exists, the Docker build also extracts representative frames with `ffmpeg` and includes one frame in the report.
-
 If Docker is not available, use the local MiKTeX build:
 
 ```powershell
