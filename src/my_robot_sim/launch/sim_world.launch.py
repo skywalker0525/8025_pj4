@@ -16,6 +16,13 @@ def generate_launch_description():
     spawn_y = LaunchConfiguration('spawn_y')
     spawn_yaw = LaunchConfiguration('spawn_yaw')
     gui = LaunchConfiguration('gui')
+    extra_gazebo_model_path = LaunchConfiguration('extra_gazebo_model_path')
+    spawn_overhead_camera = LaunchConfiguration('spawn_overhead_camera')
+    overhead_camera_x = LaunchConfiguration('overhead_camera_x')
+    overhead_camera_y = LaunchConfiguration('overhead_camera_y')
+    overhead_camera_z = LaunchConfiguration('overhead_camera_z')
+    overhead_camera_pitch = LaunchConfiguration('overhead_camera_pitch')
+    overhead_camera_yaw = LaunchConfiguration('overhead_camera_yaw')
 
     gazebo_model_path = SetEnvironmentVariable(
         name='GAZEBO_MODEL_PATH',
@@ -24,6 +31,8 @@ def generate_launch_description():
                 FindPackageShare('my_robot_sim'),
                 'models',
             ]),
+            ':',
+            extra_gazebo_model_path,
             ':',
             EnvironmentVariable('GAZEBO_MODEL_PATH', default_value=''),
         ],
@@ -51,6 +60,24 @@ def generate_launch_description():
         parameters=[
             {'use_sim_time': use_sim_time},
             {'robot_description': robot_description},
+        ],
+    )
+
+    lio_ekf = Node(
+        package='robot_localization',
+        executable='ekf_node',
+        name='lio_ekf_node',
+        output='screen',
+        parameters=[
+            PathJoinSubstitution([
+                FindPackageShare('my_robot_description'),
+                'config',
+                'lio_ekf.yaml',
+            ]),
+            {'use_sim_time': use_sim_time},
+        ],
+        remappings=[
+            ('/odometry/filtered', '/lio/odometry'),
         ],
     )
 
@@ -89,6 +116,29 @@ def generate_launch_description():
             '-z', '0.05',
             '-Y', spawn_yaw,
         ],
+    )
+
+    overhead_camera = Node(
+        package='gazebo_ros',
+        executable='spawn_entity.py',
+        name='spawn_overhead_camera',
+        output='screen',
+        arguments=[
+            '-entity', 'overhead_camera',
+            '-file', PathJoinSubstitution([
+                FindPackageShare('my_robot_sim'),
+                'models',
+                'overhead_camera',
+                'model.sdf',
+            ]),
+            '-x', overhead_camera_x,
+            '-y', overhead_camera_y,
+            '-z', overhead_camera_z,
+            '-R', '0.0',
+            '-P', overhead_camera_pitch,
+            '-Y', overhead_camera_yaw,
+        ],
+        condition=IfCondition(spawn_overhead_camera),
     )
 
     joint_state_broadcaster = Node(
@@ -133,10 +183,19 @@ def generate_launch_description():
         DeclareLaunchArgument('spawn_y', default_value='-2.5'),
         DeclareLaunchArgument('spawn_yaw', default_value='0.0'),
         DeclareLaunchArgument('gui', default_value='true'),
+        DeclareLaunchArgument('extra_gazebo_model_path', default_value=''),
+        DeclareLaunchArgument('spawn_overhead_camera', default_value='false'),
+        DeclareLaunchArgument('overhead_camera_x', default_value='0.0'),
+        DeclareLaunchArgument('overhead_camera_y', default_value='0.0'),
+        DeclareLaunchArgument('overhead_camera_z', default_value='12.0'),
+        DeclareLaunchArgument('overhead_camera_pitch', default_value='1.57079632679'),
+        DeclareLaunchArgument('overhead_camera_yaw', default_value='0.0'),
         gazebo_model_path,
         gzserver,
         gzclient,
         robot_state_publisher,
+        lio_ekf,
+        overhead_camera,
         spawn_robot,
         load_joint_state_broadcaster,
         load_camera_gimbal_controller,

@@ -22,7 +22,18 @@ class GoalOrchestratorNode(Node):
         if not waypoints_file:
             raise RuntimeError('waypoints_file parameter is required.')
         cfg = load_yaml_file(waypoints_file)
-        self.goal_b = cfg['points']['B']
+        self.points = cfg['points']
+        self.goal_b = self.points['B']
+        mission_cfg = cfg.get('mission', {})
+        sequence_names = mission_cfg.get('goal_sequence', ['B'])
+        if isinstance(sequence_names, str):
+            sequence_names = [sequence_names]
+        if not sequence_names:
+            raise RuntimeError('mission.goal_sequence must contain at least one waypoint.')
+        missing_names = [name for name in sequence_names if name not in self.points]
+        if missing_names:
+            raise RuntimeError(f'mission.goal_sequence references unknown point(s): {missing_names}')
+        self.goal_sequence_names = sequence_names
         self.apriltag_target = cfg.get('apriltag_target', {})
         frames = cfg.get('frames', {})
         self.target_frame = frames.get('target_frame', 'map')
@@ -48,6 +59,9 @@ class GoalOrchestratorNode(Node):
 
         self.state = 'WAIT_FOR_GOAL'
         self.goal_handle = None
+        self.running_auto_sequence = False
+        self.current_goal_index = 0
+        self.active_goal_name = ''
         self.finish_timer = None
         self.nav_ready_announced = False
         self.readiness_timer = self.create_timer(2.0, self.publish_readiness_when_available)
@@ -94,10 +108,13 @@ class GoalOrchestratorNode(Node):
         command = msg.data.strip().upper()
         if command == 'START_AUTO':
             self.publish_event('AUTO_MISSION_REQUESTED')
+            if self.state == 'NAVIGATING':
+                self.get_logger().warn('Ignoring START_AUTO while mission is busy.')
+                return
             if not self.nav2_ready(publish_success=not self.nav_ready_announced):
                 return
             self.nav_ready_announced = True
-            self.send_named_goal_b()
+            self.start_auto_sequence()
         elif command == 'STOP':
             self.publish_event('MISSION_STOP_REQUESTED')
             self.stop_mission(reset=False)
@@ -108,23 +125,40 @@ class GoalOrchestratorNode(Node):
             self.get_logger().warn(f'Unknown mission command: {msg.data}')
 
     def send_named_goal_b(self) -> None:
+        self.start_auto_sequence()
+
+    def start_auto_sequence(self) -> None:
+        self.running_auto_sequence = True
+        self.current_goal_index = 0
+        self.publish_event(f'AUTO_SEQUENCE_STARTED:{",".join(self.goal_sequence_names)}')
+        self.send_sequence_goal()
+
+    def send_sequence_goal(self) -> None:
+        goal_name = self.goal_sequence_names[self.current_goal_index]
+        self.send_named_goal(goal_name, publish_state_update=self.current_goal_index == 0)
+
+    def send_named_goal(self, goal_name: str, publish_state_update: bool = True) -> None:
+        waypoint = self.points[goal_name]
         pose = PoseStamped()
-        pose.header.frame_id = 'map'
+        pose.header.frame_id = self.target_frame
         pose.header.stamp = self.get_clock().now().to_msg()
-        pose.pose.position.x = float(self.goal_b['x'])
-        pose.pose.position.y = float(self.goal_b['y'])
-        quat = yaw_to_quaternion(float(self.goal_b.get('yaw', 0.0)))
+        pose.pose.position.x = float(waypoint['x'])
+        pose.pose.position.y = float(waypoint['y'])
+        quat = yaw_to_quaternion(float(waypoint.get('yaw', 0.0)))
         pose.pose.orientation.x = quat['x']
         pose.pose.orientation.y = quat['y']
         pose.pose.orientation.z = quat['z']
         pose.pose.orientation.w = quat['w']
-        self.on_goal_pose(pose)
+        self.send_goal_pose(pose, goal_name=goal_name, publish_state_update=publish_state_update)
 
     def stop_mission(self, reset: bool) -> None:
         self.cmd_vel_pub.publish(Twist())
         if self.goal_handle is not None:
             self.goal_handle.cancel_goal_async()
             self.goal_handle = None
+        self.running_auto_sequence = False
+        self.current_goal_index = 0
+        self.active_goal_name = ''
         if self.finish_timer is not None:
             self.finish_timer.cancel()
             self.finish_timer = None
@@ -138,12 +172,27 @@ class GoalOrchestratorNode(Node):
         if not self.nav2_ready(publish_success=not self.nav_ready_announced):
             return
         self.nav_ready_announced = True
+        self.running_auto_sequence = False
+        self.active_goal_name = 'manual'
+        self.send_goal_pose(msg, goal_name='manual')
+
+    def send_goal_pose(
+        self,
+        msg: PoseStamped,
+        goal_name: str,
+        publish_state_update: bool = True,
+    ) -> None:
+        if not self.nav2_ready(publish_success=not self.nav_ready_announced):
+            return
+        self.nav_ready_announced = True
 
         goal = NavigateToPose.Goal()
         goal.pose = msg
 
-        self.publish_state('NAVIGATING')
-        self.publish_event('NAVIGATION_STARTED')
+        self.active_goal_name = goal_name
+        if publish_state_update:
+            self.publish_state('NAVIGATING')
+        self.publish_event(f'NAVIGATION_STARTED:{goal_name}')
         send_goal_future = self.nav_client.send_goal_async(goal)
         send_goal_future.add_done_callback(self.on_goal_response)
 
@@ -170,6 +219,13 @@ class GoalOrchestratorNode(Node):
             return
 
         if result.status == GoalStatus.STATUS_SUCCEEDED:
+            if self.running_auto_sequence:
+                self.publish_event(f'NAVIGATION_WAYPOINT_REACHED:{self.active_goal_name}')
+                if self.current_goal_index + 1 < len(self.goal_sequence_names):
+                    self.current_goal_index += 1
+                    self.goal_handle = None
+                    self.send_sequence_goal()
+                    return
             self.publish_event('NAVIGATION_SUCCEEDED')
             self.publish_event('APRILTAG_REACHED')
             self.publish_state('DONE')
@@ -180,6 +236,7 @@ class GoalOrchestratorNode(Node):
                 self.publish_event('NAVIGATION_FALLBACK_APRILTAG_REACHED')
                 self.publish_state('DONE')
             else:
+                self.running_auto_sequence = False
                 self.publish_state('WAIT_FOR_GOAL')
         self.goal_handle = None
 

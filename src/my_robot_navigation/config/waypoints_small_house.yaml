@@ -1,0 +1,59 @@
+points:
+  A: {x: -8.425, y: 0.025, yaw: -0.081}
+  P1: {x: -5.975, y: -0.175, yaw: 0.0}
+  P2: {x: -3.975, y: -0.175, yaw: -0.322}
+  P3: {x: -3.225, y: -0.425, yaw: -0.172}
+  P4: {x: -2.075, y: -0.625, yaw: 0.812}
+  P5: {x: -1.175, y: 0.325, yaw: 0.04}
+  P6: {x: 1.325, y: 0.425, yaw: 0.069}
+  P7: {x: 2.775, y: 0.525, yaw: -0.727}
+  P8: {x: 4.575, y: -1.075, yaw: -0.785}
+  P9: {x: 6.025, y: -2.525, yaw: -0.785}
+  P10: {x: 7.125, y: -3.625, yaw: -0.464}
+  B: {x: 7.825, y: -3.975, yaw: -0.464}
+  C: {x: 2.7982, y: -3.5251, yaw: -1.591}
+  D: {x: -5.9002, y: -3.1343, yaw: -2.671}
+
+mission:
+  goal_sequence: [P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, B]
+
+target_object:
+  x: -5.4
+  y: -3.1
+  z: 0.75
+  radius: 0.4
+
+apriltag_target:
+  id: 0
+  family: tag36h11
+  x: 7.825
+  y: -3.975
+  z: 1.05
+  approach_x: 7.825
+  approach_y: -3.975
+  approach_yaw: -0.464
+  completion_radius: 1.4
+
+orbit:
+  radius: 1.25
+  linear_speed: 0.14
+  image_center_tolerance: 0.1
+  camera_height: 0.43
+
+safety:
+  min_obstacle_distance: 0.45
+  warning_obstacle_distance: 0.75
+  max_linear_speed: 0.18
+  max_angular_speed: 1.2
+  max_orbit_radius_error: 0.35
+  pan_limit: 3.14159
+  tilt_lower_limit: -0.9
+  tilt_upper_limit: 0.7
+
+video:
+  fps: 10
+  output_dir: ~/ros_videos
+
+frames:
+  target_frame: map
+  base_frame: base_link

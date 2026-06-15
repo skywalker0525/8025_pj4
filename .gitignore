@@ -1,6 +1,8 @@
 build/
 install/
 log/
+exports/
+.external_worlds/
 __pycache__/
 *.pyc
 *.bag

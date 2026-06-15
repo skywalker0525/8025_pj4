@@ -21,7 +21,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'camera_pose_exporter_node = my_robot_mission.camera_pose_exporter_node:main',
             'goal_orchestrator_node = my_robot_mission.goal_orchestrator_node:main',
+            'image_video_recorder_node = my_robot_mission.image_video_recorder_node:main',
             'initial_pose_publisher_node = my_robot_mission.initial_pose_publisher_node:main',
             'manual_control_node = my_robot_mission.manual_control_node:main',
             'orbit_controller_node = my_robot_mission.orbit_controller_node:main',

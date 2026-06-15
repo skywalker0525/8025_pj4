@@ -115,6 +115,69 @@ Open:
 http://localhost:8000
 ```
 
+## Export Image And Camera Poses
+
+Use the LIO-style capture launch when you need a reconstruction dataset made of RGB frames and the camera pose at each image timestamp. This branch adds a simulated IMU topic `/imu/data`, a 3D LiDAR PointCloud2 topic `/points_raw`, and an exporter that waits for both before saving images. The robot pose chain is LiDAR/IMU based: AMCL uses `/scan` for `map -> odom`, `robot_localization` fuses `/odom` and `/imu/data` for `odom -> base_link`, and the exporter looks up `map -> camera_optical_frame` at each image timestamp. The launch records during the automatic `NAVIGATING` mission state by default.
+
+Inside the Docker container:
+
+```bash
+cd /ws
+colcon build
+source install/setup.bash
+ros2 launch my_robot_navigation livo_dataset_capture.launch.py gui:=false rviz:=false auto_start:=true
+```
+
+By default `max_frames:=0`, so the exporter records the full automatic navigation sequence and stops when the mission reaches `DONE` or `STOPPED`. Use a positive `max_frames` value only for quick smoke tests.
+
+The output is written under:
+
+```text
+/ws/exports/livo_image_pose/<capture_timestamp>/
+```
+
+Main files:
+
+- `images/*.png`: exported camera frames.
+- `poses.csv`: `T_parent_camera` pose for each image, looked up at the image timestamp.
+- `transforms.json`: camera-to-parent matrices and intrinsics for 3DGS-style tools.
+- `sparse/0/cameras.txt` and `sparse/0/images.txt`: COLMAP-style camera intrinsics and world-to-camera poses.
+- `poses_colmap_w2c.txt`: desktop-compatible `name qw qx qy qz tx ty tz` world-to-camera poses.
+- `camera_centers_world.txt`: desktop-compatible camera centers `name Cx Cy Cz` in the parent frame.
+- `image_name_mapping.csv`: identity mapping for exported image names.
+- `camera.mp4` and `overhead.mp4`: onboard camera video and overhead camera video recorded during `NAVIGATING`.
+
+By default the parent frame is `map`. If a FAST-LIVO2-style LIO backend publishes a different world frame, launch with `pose_parent_frame:=<lio_world_frame>` and keep `camera_frame:=camera_optical_frame`.
+
+### Complex Small House Capture
+
+The complex indoor capture uses the official AWS RoboMaker Small House World. Fetch it into the ignored `.external_worlds/` directory before launching:
+
+```bash
+cd /ws
+./scripts/fetch_aws_small_house_world.sh
+colcon build
+source install/setup.bash
+```
+
+Run the full top-left to bottom-right navigation sequence:
+
+```bash
+xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 ros2 launch my_robot_navigation small_house_livo_dataset_capture.launch.py run_name:=small_house_full_video_20260615 sample_period_sec:=0.25
+```
+
+This branch was verified with two exported datasets:
+
+- `exports/livo_image_pose/old_room_full_video_20260615`: 134 image/pose pairs, onboard video, overhead video, and desktop-compatible pose files.
+- `exports/livo_image_pose/small_house_full_video_20260615`: 450 image/pose pairs, onboard video, overhead video, and desktop-compatible pose files.
+
+Both folders were also copied to:
+
+```text
+/media/luke/Extreme Pro/old_room_full_video_20260615
+/media/luke/Extreme Pro/small_house_full_video_20260615
+```
+
 ## Automatic Mode
 
 1. Open Gazebo/RViz and the Web Dashboard.
@@ -231,7 +294,7 @@ The `telemetry_node` publishes `/mission/telemetry` as JSON for the dashboard. I
 Physics and collision constraints are represented in four places:
 
 - URDF/Xacro: link collision geometry, mass, inertia, and gimbal joint limits.
-- Four-wheel base: rear left/right wheels are driven by one Gazebo diff-drive plugin that publishes `/odom` and `odom -> base_link`; front wheels are passive support wheels.
+- Four-wheel base: rear left/right wheels are driven by one Gazebo diff-drive plugin that publishes `/odom`; `robot_localization` fuses `/odom` with `/imu/data` and publishes `odom -> base_link`; front wheels are passive support wheels.
 - Gazebo world: collision geometry for walls, materials, barriers, rebar cage, tool chest, and the simple cylinder column.
 - Nav2: robot radius, obstacle layers, and inflation layers in the local/global costmaps.
 - Mission safety: runtime telemetry warnings plus stop/reset commands.
