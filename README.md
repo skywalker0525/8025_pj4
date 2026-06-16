@@ -246,36 +246,40 @@ It contains 1023 RGB images, 1023 timestamped camera poses in `poses.csv`, COLMA
 
 ### Online LIO/POMP Coverage Simulation
 
-For unknown or semi-known scene experiments, run the online coverage simulator. It starts from an unknown local grid, synthesizes LiDAR observations against the complex construction scene, treats the current pose as drift-free LIO output, projects the discovered local map into a POMP-style planning grid, and plans coverage/frontier goals for reconstruction sampling.
+For unknown or semi-known scene experiments, run the online coverage simulator. It starts from an unknown local grid, synthesizes LiDAR observations against the complex construction scene, treats the current pose as drift-free LIO output, plans frontier coverage for reconstruction sampling, then explicitly replans to the final B goal and records whether the robot reached it.
 
 Run the safe full comparison:
 
 ```bash
 cd /ws
-python3 scripts/simulate_online_lio_pomp_coverage.py /ws/exports/online_lio_pomp_coverage/complex_construction_safe_20260616 --planner-timeout 5 --theta-timeout 5 --max-expanded-nodes 50000 --quiet-planner-log
+python3 scripts/simulate_online_lio_pomp_coverage.py /ws/exports/online_lio_pomp_coverage/complex_construction_goalcheck_pointcloud_20260616_v2 --planner-timeout 5 --theta-timeout 5 --max-expanded-nodes 50000 --quiet-planner-log
 ```
 
-The online comparison includes Dijkstra, A*, Weighted A*, and `theta_star`. In this simulator, `theta_star` intentionally does not run full Theta* global search in the online loop; it uses bounded Weighted A* as the main planner and then applies cached Theta-style line-of-sight shortcut smoothing to the returned path. This prevents high CPU load on complex maps while preserving an any-angle path-smoothing comparison.
+The default comparison runs two map representations, `direct_ogm` and `pomp_style_ogm`, against Dijkstra, A*, Weighted A*, and `theta_star`. In this simulator, `theta_star` intentionally does not run full Theta* global search in the online loop; it uses bounded Weighted A* as the main planner and then applies cached Theta-style line-of-sight shortcut smoothing to the returned path. This prevents high CPU load on complex maps while preserving an any-angle path-smoothing comparison.
 
 Useful safety options:
 
 ```bash
 python3 scripts/simulate_online_lio_pomp_coverage.py /ws/exports/online_lio_pomp_coverage/no_theta --skip-theta-star --quiet-planner-log
 python3 scripts/simulate_online_lio_pomp_coverage.py /ws/exports/online_lio_pomp_coverage/debug_theta --algorithms theta_star --theta-timeout 5 --planner-timeout 5 --max-expanded-nodes 50000
+python3 scripts/simulate_online_lio_pomp_coverage.py /ws/exports/online_lio_pomp_coverage/pomp_weighted_only --map-variants pomp_style_ogm --algorithms weighted_astar --quiet-planner-log
 ```
 
 Verified local output:
 
 ```text
-exports/online_lio_pomp_coverage/complex_construction_safe_20260616/
+exports/online_lio_pomp_coverage/complex_construction_goalcheck_pointcloud_20260616_v2/
 ```
 
-Each planner folder contains:
+Each run folder contains:
 
 - `*_overhead_lidar.mp4`: top-down LiDAR mapping and route video.
 - `*_onboard.mp4`: simulated onboard camera video.
-- `*_trajectory.png`: route plot for that planner.
+- `*_trajectory.png`: route plot for that run.
 - `samples/images/*.png` and `samples/poses.csv`: reconstruction samples and corresponding poses.
+- `samples/transforms.json`, `samples/poses_colmap_w2c.txt`, `samples/camera_centers_world.txt`, and `samples/image_name_mapping.csv`: 3DGS/COLMAP-style sidecar pose files.
+- `point_cloud/lidar_points_world.csv` and `point_cloud/lidar_points_world.ply`: accumulated simulated LiDAR scan endpoints in world coordinates.
+- `point_cloud/final_known_occupied_points_world.ply`: final occupied-cell point cloud from the discovered map.
 - `metadata.json`: route and run metadata.
 
 The root output folder contains:
@@ -283,16 +287,19 @@ The root output folder contains:
 - `metrics.csv` and `metrics.json`: numeric comparison.
 - `metrics_table.png`: rendered metric table.
 - `route_comparison.png`: route comparison across planners.
-- `patches/simulate_online_lio_pomp_coverage_safe_theta.diff`: full patch for the safe online simulator.
 
-Final online coverage summary:
+Final online coverage and goal-check summary:
 
-| Planner | Success | Free coverage | Surface coverage | Path m | Samples | Expanded nodes | Plan ms |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Dijkstra | yes | 0.771292 | 0.585387 | 72.755749 | 72 | 37371 | 346.103034 |
-| A* | no | 0.757851 | 0.576660 | 69.942850 | 68 | 8057 | 76.494268 |
-| Weighted A* | yes | 0.728656 | 0.580424 | 80.591378 | 74 | 2895 | 26.440310 |
-| Theta-style shortcut | no | 0.622218 | 0.375941 | 45.106140 | 23 | 587 | 6.441236 |
+| Run | Coverage reached | Goal reached | Goal dist m | Free coverage | Surface coverage | Path m | Samples | LiDAR points |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| direct_ogm_dijkstra | yes | yes | 0.22 | 0.776 | 0.609 | 77.2 | 89 | 47808 |
+| direct_ogm_astar | yes | yes | 0.36 | 0.778 | 0.599 | 95.5 | 101 | 61344 |
+| direct_ogm_weighted_astar | yes | yes | 0.36 | 0.774 | 0.601 | 99.5 | 98 | 63360 |
+| direct_ogm_theta_star | no | yes | 0.10 | 0.688 | 0.459 | 93.8 | 35 | 8784 |
+| pomp_style_ogm_dijkstra | yes | yes | 0.22 | 0.782 | 0.624 | 94.9 | 99 | 61056 |
+| pomp_style_ogm_astar | yes | yes | 0.36 | 0.783 | 0.626 | 90.9 | 93 | 58320 |
+| pomp_style_ogm_weighted_astar | yes | yes | 0.36 | 0.730 | 0.587 | 99.4 | 96 | 63936 |
+| pomp_style_ogm_theta_star | yes | yes | 0.10 | 0.820 | 0.591 | 105.1 | 42 | 9072 |
 
 ## Automatic Mode
 
