@@ -1,4 +1,5 @@
 from datetime import datetime
+from collections import deque
 import csv
 import json
 import math
@@ -65,6 +66,8 @@ class PointCloudExporterNode(Node):
         self.declare_parameter('sample_period_sec', 0.50)
         self.declare_parameter('point_stride', 4)
         self.declare_parameter('max_scans', 0)
+        self.declare_parameter('tf_lookup_delay_sec', 0.20)
+        self.declare_parameter('max_tf_wait_sec', 3.0)
         self.declare_parameter('tf_lookup_timeout_sec', 0.20)
         self.declare_parameter('tf_use_latest_on_extrapolation', True)
         self.declare_parameter('tf_warning_period_sec', 5.0)
@@ -91,6 +94,8 @@ class PointCloudExporterNode(Node):
         self.sample_period_sec = float(self.get_parameter('sample_period_sec').value)
         self.point_stride = max(1, int(self.get_parameter('point_stride').value))
         self.max_scans = int(self.get_parameter('max_scans').value)
+        self.tf_lookup_delay_sec = float(self.get_parameter('tf_lookup_delay_sec').value)
+        self.max_tf_wait_sec = float(self.get_parameter('max_tf_wait_sec').value)
         self.tf_lookup_timeout_sec = float(self.get_parameter('tf_lookup_timeout_sec').value)
         self.tf_use_latest_on_extrapolation = bool(
             self.get_parameter('tf_use_latest_on_extrapolation').value
@@ -143,8 +148,11 @@ class PointCloudExporterNode(Node):
         ])
         self.ply_body_handle = open(self.ply_body_path, 'w', encoding='utf-8')
         self.overlay_writer: Optional[cv2.VideoWriter] = None
+        self.pending_pointclouds = deque(maxlen=120)
+        self.last_queued_scan_stamp_ns: Optional[int] = None
         self.last_scan_stamp_ns: Optional[int] = None
         self.latest_overlay_points: List[Tuple[float, float, float]] = []
+        self.latest_lidar_origin: Optional[Tuple[float, float, float]] = None
         self.scan_count = 0
         self.point_count = 0
         self.overlay_frame_count = 0
@@ -157,6 +165,7 @@ class PointCloudExporterNode(Node):
         self.create_subscription(PointCloud2, self.pointcloud_topic, self.on_pointcloud, 10)
         self.create_subscription(Image, self.overhead_image_topic, self.on_overhead_image, 10)
         self.create_subscription(String, self.mission_state_topic, self.on_mission_state, 10)
+        self.create_timer(0.05, self.flush_pending_pointclouds)
         self.write_metadata()
         self.publish_event(f'POINTCLOUD_EXPORT_STARTED:{self.point_cloud_dir}')
         self.get_logger().info(
@@ -166,6 +175,7 @@ class PointCloudExporterNode(Node):
     def on_mission_state(self, msg: String) -> None:
         self.current_mission_state = msg.data
         if self.current_mission_state in self.finish_states and self.scan_count > 0:
+            self.pending_pointclouds.clear()
             self.announce_done_once()
 
     def should_record(self) -> bool:
@@ -183,10 +193,36 @@ class PointCloudExporterNode(Node):
             return
         stamp_ns = stamp_to_ns(msg.header.stamp)
         if (
-            self.last_scan_stamp_ns is not None
-            and stamp_ns - self.last_scan_stamp_ns < int(self.sample_period_sec * 1e9)
+            self.last_queued_scan_stamp_ns is not None
+            and stamp_ns - self.last_queued_scan_stamp_ns < int(self.sample_period_sec * 1e9)
         ):
             return
+        self.last_queued_scan_stamp_ns = stamp_ns
+        self.pending_pointclouds.append(msg)
+
+    def flush_pending_pointclouds(self) -> None:
+        if self.done_announced or not self.pending_pointclouds:
+            return
+        now_ns = self.get_clock().now().nanoseconds
+        while self.pending_pointclouds:
+            msg = self.pending_pointclouds[0]
+            stamp_ns = stamp_to_ns(msg.header.stamp)
+            age_sec = (now_ns - stamp_ns) * 1e-9 if now_ns > 0 and stamp_ns > 0 else self.max_tf_wait_sec
+            if age_sec < self.tf_lookup_delay_sec:
+                return
+            allow_latest_fallback = age_sec >= self.max_tf_wait_sec
+            try:
+                self.export_pointcloud(msg, allow_latest_fallback=allow_latest_fallback)
+            except TransformException as exc:
+                if age_sec < self.max_tf_wait_sec:
+                    return
+                self.tf_skip_count += 1
+                self.warn_tf_skip_throttled(msg, exc)
+            except Exception as exc:
+                self.get_logger().error(f'Failed to export point cloud: {exc}')
+            self.pending_pointclouds.popleft()
+
+    def lookup_pointcloud_transform(self, msg: PointCloud2, allow_latest_fallback: bool):
         transform = None
         try:
             transform = self.tf_buffer.lookup_transform(
@@ -197,7 +233,7 @@ class PointCloudExporterNode(Node):
             )
             self.tf_exact_count += 1
         except TransformException as exact_exc:
-            if self.tf_use_latest_on_extrapolation:
+            if self.tf_use_latest_on_extrapolation and allow_latest_fallback:
                 try:
                     transform = self.tf_buffer.lookup_transform(
                         self.pose_parent_frame,
@@ -207,18 +243,26 @@ class PointCloudExporterNode(Node):
                     )
                     self.tf_latest_fallback_count += 1
                 except TransformException as fallback_exc:
-                    self.tf_skip_count += 1
-                    self.warn_tf_skip_throttled(msg, fallback_exc, exact_exc)
-                    return
+                    raise TransformException(
+                        f'exact lookup failed: {exact_exc}; latest fallback failed: {fallback_exc}'
+                    )
             else:
-                self.tf_skip_count += 1
-                self.warn_tf_skip_throttled(msg, exact_exc)
-                return
+                raise exact_exc
+        return transform
 
+    def export_pointcloud(self, msg: PointCloud2, allow_latest_fallback: bool) -> None:
+        if self.done_announced:
+            return
+        if self.max_scans > 0 and self.scan_count >= self.max_scans:
+            self.announce_done_once()
+            return
+        stamp_ns = stamp_to_ns(msg.header.stamp)
+        transform = self.lookup_pointcloud_transform(msg, allow_latest_fallback)
         t = transform.transform.translation
         q = transform.transform.rotation
         rotation = quat_xyzw_to_matrix(q.x, q.y, q.z, q.w)
         translation = (float(t.x), float(t.y), float(t.z))
+        self.latest_lidar_origin = translation
         timestamp = stamp_to_float(msg.header.stamp)
         scan_index = self.scan_count + 1
         points_for_overlay: List[Tuple[float, float, float]] = []
@@ -303,19 +347,15 @@ class PointCloudExporterNode(Node):
 
     def draw_lidar_overlay(self, frame) -> None:
         height, width = frame.shape[:2]
-        view_width = 2.0 * self.overhead_camera_z * math.tan(0.5 * self.overhead_horizontal_fov)
-        view_height = view_width * float(height) / float(width)
-        c = math.cos(-self.overhead_camera_yaw)
-        s = math.sin(-self.overhead_camera_yaw)
         for x, y, _z in self.latest_overlay_points:
-            dx = x - self.overhead_camera_x
-            dy = y - self.overhead_camera_y
-            rx = c * dx - s * dy
-            ry = s * dx + c * dy
-            u = int((rx + 0.5 * view_width) / view_width * width)
-            v = int((0.5 * view_height - ry) / view_height * height)
-            if 0 <= u < width and 0 <= v < height:
-                cv2.circle(frame, (u, v), 2, (0, 230, 255), -1, cv2.LINE_AA)
+            projected = self.project_overhead_point(x, y, _z, width, height)
+            if projected is not None:
+                u, v = projected
+                cv2.circle(frame, (u, v), 1, (255, 0, 0), -1, cv2.LINE_AA)
+        if self.latest_lidar_origin is not None:
+            projected_origin = self.project_overhead_point(*self.latest_lidar_origin, width, height)
+            if projected_origin is not None:
+                cv2.circle(frame, projected_origin, 4, (255, 0, 0), 1, cv2.LINE_AA)
         cv2.putText(
             frame,
             f'Gazebo overhead + /points_raw | scans={self.scan_count} points={self.point_count}',
@@ -336,6 +376,34 @@ class PointCloudExporterNode(Node):
             1,
             cv2.LINE_AA,
         )
+
+    def project_overhead_point(
+        self,
+        x: float,
+        y: float,
+        z: float,
+        width: int,
+        height: int,
+    ) -> Optional[Tuple[int, int]]:
+        depth = self.overhead_camera_z - z
+        if depth <= 0.05:
+            return None
+
+        dx = x - self.overhead_camera_x
+        dy = y - self.overhead_camera_y
+        yaw = self.overhead_camera_yaw
+        right_x = math.sin(yaw)
+        right_y = -math.cos(yaw)
+        down_x = -math.cos(yaw)
+        down_y = -math.sin(yaw)
+        camera_right_m = dx * right_x + dy * right_y
+        camera_down_m = dx * down_x + dy * down_y
+        focal_px = float(width) / (2.0 * math.tan(0.5 * self.overhead_horizontal_fov))
+        u = int(round(0.5 * float(width) + focal_px * camera_right_m / depth))
+        v = int(round(0.5 * float(height) + focal_px * camera_down_m / depth))
+        if 0 <= u < width and 0 <= v < height:
+            return u, v
+        return None
 
     def finalize_ply(self) -> None:
         if self.ply_body_handle is not None:
@@ -378,8 +446,20 @@ class PointCloudExporterNode(Node):
             'pose_parent_frame': self.pose_parent_frame,
             'sample_period_sec': self.sample_period_sec,
             'point_stride': self.point_stride,
+            'tf_lookup_delay_sec': self.tf_lookup_delay_sec,
+            'max_tf_wait_sec': self.max_tf_wait_sec,
             'tf_lookup_timeout_sec': self.tf_lookup_timeout_sec,
             'tf_use_latest_on_extrapolation': self.tf_use_latest_on_extrapolation,
+            'overhead_projection': {
+                'model': 'top_down_pinhole',
+                'camera_x': self.overhead_camera_x,
+                'camera_y': self.overhead_camera_y,
+                'camera_z': self.overhead_camera_z,
+                'camera_yaw': self.overhead_camera_yaw,
+                'horizontal_fov': self.overhead_horizontal_fov,
+                'image_right_axis_at_yaw_zero': '-world_y',
+                'image_down_axis_at_yaw_zero': '-world_x',
+            },
             'tf_exact_count': self.tf_exact_count,
             'tf_latest_fallback_count': self.tf_latest_fallback_count,
             'tf_skip_count': self.tf_skip_count,
