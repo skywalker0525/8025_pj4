@@ -178,6 +178,72 @@ Both folders were also copied to:
 /media/luke/Extreme Pro/small_house_full_video_20260615
 ```
 
+### Complex Construction POMP Benchmark
+
+This branch also adds a larger generated construction-site map for path-planning experiments. The scene is defined in `scripts/complex_construction_scene.py` and generated into Gazebo, Nav2 map, waypoint, and parameter assets by:
+
+```bash
+cd /ws
+python3 scripts/generate_complex_construction_assets.py
+colcon build
+source install/setup.bash
+```
+
+The generated assets are:
+
+- `src/my_robot_sim/worlds/complex_construction_site.world`
+- `src/my_robot_navigation/maps/complex_construction_map.yaml`
+- `src/my_robot_navigation/maps/complex_construction_map.pgm`
+- `src/my_robot_navigation/config/waypoints_complex_construction.yaml`
+- `src/my_robot_navigation/config/nav2_params_complex_construction.yaml`
+
+Run the POMP-style occupancy-grid benchmark against common planners:
+
+```bash
+cd /ws
+python3 scripts/benchmark_path_planners.py /ws/exports/planning_benchmarks/complex_construction_benchmark_20260616
+```
+
+The benchmark compares direct coarse OGM projection with a POMP-style subcell OGM projection, then runs Dijkstra, A*, Weighted A*, and Theta*. Verified local outputs:
+
+```text
+exports/planning_benchmarks/complex_construction_benchmark_20260616/metrics.csv
+exports/planning_benchmarks/complex_construction_benchmark_20260616/metrics.json
+exports/planning_benchmarks/complex_construction_benchmark_20260616/direct_ogm_trajectories.png
+exports/planning_benchmarks/complex_construction_benchmark_20260616/pomp_style_ogm_trajectories.png
+exports/planning_benchmarks/complex_construction_benchmark_20260616/trajectory_summary.png
+exports/planning_benchmarks/complex_construction_benchmark_20260616/planner_animation.mp4
+```
+
+Final benchmark summary:
+
+| Map variant | Planner | Success | Length m | Expanded nodes | Runtime ms |
+| --- | --- | ---: | ---: | ---: | ---: |
+| direct OGM | Dijkstra | yes | 34.6818 | 5888 | 25.6304 |
+| direct OGM | A* | yes | 34.6818 | 4904 | 22.7830 |
+| direct OGM | Weighted A* | yes | 34.7990 | 4207 | 20.0415 |
+| direct OGM | Theta* | yes | 32.8685 | 4483 | 162.7424 |
+| POMP-style OGM | Dijkstra | yes | 23.3078 | 6319 | 30.2212 |
+| POMP-style OGM | A* | yes | 23.3078 | 2263 | 10.9218 |
+| POMP-style OGM | Weighted A* | yes | 24.3907 | 234 | 1.1889 |
+| POMP-style OGM | Theta* | yes | 21.8283 | 1228 | 70.7606 |
+
+Run the full complex-map image/pose capture:
+
+```bash
+cd /ws
+source install/setup.bash
+xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 ros2 launch my_robot_navigation complex_construction_livo_dataset_capture.launch.py run_name:=complex_construction_full_20260616_v3 sample_period_sec:=0.30
+```
+
+The verified full-run dataset is local only and was not moved to an external drive:
+
+```text
+exports/livo_image_pose/complex_construction_full_20260616_v3/
+```
+
+It contains 1023 RGB images, 1023 timestamped camera poses in `poses.csv`, COLMAP-style `sparse/0/`, `poses_colmap_w2c.txt`, `camera_centers_world.txt`, `transforms.json`, `camera.mp4`, and `overhead.mp4`. The mission reached every waypoint from `P1` through `B` and finished with `NAVIGATION_SUCCEEDED`.
+
 ## Automatic Mode
 
 1. Open Gazebo/RViz and the Web Dashboard.
