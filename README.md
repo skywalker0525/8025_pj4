@@ -268,6 +268,42 @@ xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 ros2 launch my_robot_navigation complex_
 
 The 3D capture output includes `camera.mp4`, `overhead.mp4`, `overhead_lidar.mp4`, `images/*.png`, camera pose files, and `point_cloud/lidar_points_world.{csv,ply}`. A short smoke test was verified at `exports/livo_image_pose/pomp_style_ogm_weighted_astar_3d_smoke_yawfix_20260616/`: it exported 30 image/pose pairs, 5 LiDAR scans, 7008 world-frame points, and reached waypoint `W001` before the run was stopped.
 
+For the paper-style 3D navigation comparison, run the planner-labelled captures as a batch. This keeps the scene fully 3D in Gazebo, uses the real robot model, executes Nav2 navigation, and records reconstruction outputs plus navigation metrics for each planner:
+
+```bash
+cd /ws
+colcon build --packages-select my_robot_mission my_robot_navigation
+source install/setup.bash
+python3 scripts/run_3d_navigation_benchmark.py \
+  --waypoint-summary /ws/exports/planner_waypoints/complex_construction_3d_nav/summary.csv \
+  --benchmark-dir /ws/exports/navigation_benchmarks/complex_construction_3d_nav \
+  --timeout-sec 600 \
+  --max-pointcloud-scans 250 \
+  --quiet
+```
+
+Each run folder under `exports/livo_image_pose/<run_name>/` includes the reconstruction files plus:
+
+- `navigation_events.csv`: raw mission/Nav2 event timeline.
+- `navigation_trajectory.csv`: sampled `map -> base_link` trajectory and accumulated executed path length.
+- `navigation_summary.json`: reached/failed waypoint counts, actual path length, runtime, success/failure flags, and linked image/pose/point-cloud counts.
+
+The batch summary is written to:
+
+```text
+exports/navigation_benchmarks/complex_construction_3d_nav/navigation_benchmark_summary.csv
+exports/navigation_benchmarks/complex_construction_3d_nav/navigation_benchmark_summary.json
+exports/navigation_benchmarks/complex_construction_3d_nav/logs/
+```
+
+For distinct planner-derived 3D navigation routes, generate a second waypoint set with:
+
+```bash
+python3 scripts/export_planner_waypoints.py /ws/exports/planner_waypoints/complex_construction_3d_nav_clearance --successful-only --nav-mode clearance_filter
+```
+
+Those routes are more useful for navigation ablations but can fail in tight passages; the default `nav_safe_milestones` set is the controlled capture route for stable reconstruction comparisons.
+
 ### Online LIO/POMP Goal-Reach Simulation
 
 For unknown or semi-known scene experiments, run the online simulator. It starts from an unknown local grid, synthesizes LiDAR observations against the complex construction scene, and treats the current pose as drift-free LIO output. Each replan first tries the final B goal only if B is connected through the LiDAR-known free grid; otherwise it selects a frontier cell that is known free and adjacent to unknown space. Once B is reached, the run stops and does not return to chase coverage targets.

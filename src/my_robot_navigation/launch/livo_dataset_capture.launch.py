@@ -27,6 +27,7 @@ def generate_launch_description():
     pointcloud_sample_period_sec = LaunchConfiguration('pointcloud_sample_period_sec')
     pointcloud_stride = LaunchConfiguration('pointcloud_stride')
     max_pointcloud_scans = LaunchConfiguration('max_pointcloud_scans')
+    nav_metrics_sample_period_sec = LaunchConfiguration('nav_metrics_sample_period_sec')
     pose_parent_frame = LaunchConfiguration('pose_parent_frame')
     camera_frame = LaunchConfiguration('camera_frame')
     spawn_overhead_camera = LaunchConfiguration('spawn_overhead_camera')
@@ -159,6 +160,25 @@ def generate_launch_description():
         ],
     )
 
+    navigation_metrics = Node(
+        package='my_robot_mission',
+        executable='navigation_metrics_recorder_node',
+        name='navigation_metrics_recorder_node',
+        output='screen',
+        parameters=[
+            {'use_sim_time': True},
+            {'output_dir': output_dir},
+            {'run_name': run_name},
+            {'mission_event_topic': '/mission/events'},
+            {'mission_state_topic': '/mission/state'},
+            {'pose_parent_frame': pose_parent_frame},
+            {'base_frame': 'base_link'},
+            {'sample_period_sec': nav_metrics_sample_period_sec},
+            {'record_states': ['NAVIGATING']},
+            {'finish_states': ['DONE', 'STOPPED']},
+        ],
+    )
+
     start_auto = TimerAction(
         period=35.0,
         actions=[
@@ -229,6 +249,7 @@ def generate_launch_description():
         DeclareLaunchArgument('pointcloud_sample_period_sec', default_value='0.50'),
         DeclareLaunchArgument('pointcloud_stride', default_value='4'),
         DeclareLaunchArgument('max_pointcloud_scans', default_value='0'),
+        DeclareLaunchArgument('nav_metrics_sample_period_sec', default_value='0.50'),
         DeclareLaunchArgument('pose_parent_frame', default_value='map'),
         DeclareLaunchArgument('camera_frame', default_value='camera_optical_frame'),
         DeclareLaunchArgument('spawn_overhead_camera', default_value='true'),
@@ -242,5 +263,6 @@ def generate_launch_description():
         camera_video,
         overhead_video,
         pointcloud_exporter,
+        navigation_metrics,
         start_auto,
     ])

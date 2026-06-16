@@ -26,6 +26,7 @@ setup(
             'image_video_recorder_node = my_robot_mission.image_video_recorder_node:main',
             'initial_pose_publisher_node = my_robot_mission.initial_pose_publisher_node:main',
             'manual_control_node = my_robot_mission.manual_control_node:main',
+            'navigation_metrics_recorder_node = my_robot_mission.navigation_metrics_recorder_node:main',
             'orbit_controller_node = my_robot_mission.orbit_controller_node:main',
             'pointcloud_exporter_node = my_robot_mission.pointcloud_exporter_node:main',
             'telemetry_node = my_robot_mission.telemetry_node:main',

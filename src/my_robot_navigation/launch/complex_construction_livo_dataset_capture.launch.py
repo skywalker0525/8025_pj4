@@ -15,6 +15,7 @@ def generate_launch_description():
     pointcloud_sample_period_sec = LaunchConfiguration('pointcloud_sample_period_sec')
     pointcloud_stride = LaunchConfiguration('pointcloud_stride')
     max_pointcloud_scans = LaunchConfiguration('max_pointcloud_scans')
+    nav_metrics_sample_period_sec = LaunchConfiguration('nav_metrics_sample_period_sec')
 
     capture_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -56,6 +57,7 @@ def generate_launch_description():
             'pointcloud_sample_period_sec': pointcloud_sample_period_sec,
             'pointcloud_stride': pointcloud_stride,
             'max_pointcloud_scans': max_pointcloud_scans,
+            'nav_metrics_sample_period_sec': nav_metrics_sample_period_sec,
             'spawn_overhead_camera': 'true',
             'overhead_camera_x': '0.0',
             'overhead_camera_y': '0.0',
@@ -82,5 +84,6 @@ def generate_launch_description():
         DeclareLaunchArgument('pointcloud_sample_period_sec', default_value='0.50'),
         DeclareLaunchArgument('pointcloud_stride', default_value='4'),
         DeclareLaunchArgument('max_pointcloud_scans', default_value='0'),
+        DeclareLaunchArgument('nav_metrics_sample_period_sec', default_value='0.50'),
         capture_launch,
     ])
