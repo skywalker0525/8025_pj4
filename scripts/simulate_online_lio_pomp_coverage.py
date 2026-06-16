@@ -39,6 +39,7 @@ LIDAR_RANGE_M = 4.5
 LIDAR_BEAMS = 144
 LIDAR_DRAW_STRIDE = 3
 LIDAR_Z_M = 0.280
+SEGMENT_CHECK_RESOLUTION_M = FINE_RESOLUTION * 0.5
 CAMERA_RANGE_M = 7.0
 CAMERA_FOV_RAD = math.radians(72.0)
 CAMERA_BEAMS = 96
@@ -57,7 +58,6 @@ MIN_INFORMATION_GAIN = 18
 SAMPLE_DISTANCE_M = 0.75
 VIDEO_STRIDE = 2
 VIDEO_FPS = 10.0
-UNKNOWN_TRAVERSAL_PENALTY = 2.4
 DEFAULT_PLANNER_TIMEOUT_SEC = 5.0
 DEFAULT_THETA_TIMEOUT_SEC = 5.0
 DEFAULT_MAX_EXPANDED_NODES = 50000
@@ -87,6 +87,8 @@ DIRS_8 = [
     (1, -1, math.sqrt(2.0)),
     (-1, -1, math.sqrt(2.0)),
 ]
+
+SCENE_OBSTACLES = all_obstacles(include_boundary=True)
 
 
 @dataclass
@@ -118,12 +120,12 @@ class PlanGrid:
         return self.in_bounds(x, y) and int(self.state[y, x]) == FREE
 
     def is_traversable(self, x: int, y: int) -> bool:
-        return self.in_bounds(x, y) and int(self.state[y, x]) != OCCUPIED
+        return self.is_free(x, y)
 
     def traversal_multiplier(self, x: int, y: int) -> float:
-        if not self.in_bounds(x, y):
+        if not self.is_free(x, y):
             return math.inf
-        return UNKNOWN_TRAVERSAL_PENALTY if int(self.state[y, x]) == UNKNOWN else 1.0
+        return 1.0
 
     def flatten(self, x: int, y: int) -> int:
         return x + y * self.cols
@@ -185,6 +187,7 @@ class RunMetrics:
     planner_fallbacks: int = 0
     route_png: str = ""
     overhead_lidar_video: str = ""
+    overhead_scene_lidar_video: str = ""
     onboard_video: str = ""
     samples_dir: str = ""
     poses_csv: str = ""
@@ -192,11 +195,15 @@ class RunMetrics:
     poses_colmap_w2c: str = ""
     camera_centers_world: str = ""
     image_name_mapping: str = ""
+    planning_targets_csv: str = ""
     lidar_points_csv: str = ""
     lidar_points_ply: str = ""
     occupied_points_ply: str = ""
     lidar_scans: int = 0
     lidar_points: int = 0
+    blocked_motion_replans: int = 0
+    stalled_replans: int = 0
+    wall_crossing_segments: int = 0
 
 
 def fine_dims() -> Tuple[int, int]:
@@ -230,13 +237,12 @@ def yaw_quaternion(yaw: float) -> Tuple[float, float, float, float]:
 
 def build_ground_truth() -> np.ndarray:
     cols, rows = fine_dims()
-    obstacles = all_obstacles(include_boundary=True)
     occ = np.zeros((rows, cols), dtype=np.bool_)
     for iy in range(rows):
         y = MAP_ORIGIN[1] + (iy + 0.5) * FINE_RESOLUTION
         for ix in range(cols):
             x = MAP_ORIGIN[0] + (ix + 0.5) * FINE_RESOLUTION
-            occ[iy, ix] = point_in_any_box(x, y, obstacles)
+            occ[iy, ix] = point_in_any_box(x, y, SCENE_OBSTACLES)
     return occ
 
 
@@ -273,6 +279,45 @@ def cast_ray(gt_occ: np.ndarray, pose: Pose2D, angle: float, max_range: float) -
         if gt_occ[iy, ix]:
             return x, y, dist, True
     return last_x, last_y, max_range, False
+
+
+def scene_color_at(x: float, y: float) -> Tuple[int, int, int]:
+    for obstacle in SCENE_OBSTACLES:
+        if point_in_any_box(x, y, [obstacle], margin=0.01):
+            r, g, b = obstacle.color
+            return int(255 * b), int(255 * g), int(255 * r)
+    return 205, 205, 198
+
+
+def segment_hits_obstacle(
+    gt_occ: np.ndarray,
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+) -> Tuple[bool, Optional[Tuple[int, int]]]:
+    rows, cols = gt_occ.shape
+    distance = math.hypot(x1 - x0, y1 - y0)
+    steps = max(1, int(math.ceil(distance / SEGMENT_CHECK_RESOLUTION_M)))
+    for step in range(1, steps + 1):
+        t = step / float(steps)
+        x = x0 + (x1 - x0) * t
+        y = y0 + (y1 - y0) * t
+        ix, iy = world_to_fine(x, y)
+        if not in_fine_bounds(ix, iy, cols, rows):
+            return True, None
+        if gt_occ[iy, ix]:
+            return True, (ix, iy)
+    return False, None
+
+
+def count_route_wall_crossings(gt_occ: np.ndarray, route: Sequence[Tuple[float, float]]) -> int:
+    crossings = 0
+    for (x0, y0), (x1, y1) in zip(route, route[1:]):
+        hit, _ = segment_hits_obstacle(gt_occ, x0, y0, x1, y1)
+        if hit:
+            crossings += 1
+    return crossings
 
 
 def update_lidar_map(
@@ -343,8 +388,9 @@ def build_pomp_plan_grid(known: np.ndarray) -> PlanGrid:
             occ_points = np.argwhere(block == OCCUPIED)
             occ_count = int(occ_points.shape[0])
             free_count = int(np.count_nonzero(block == FREE))
+            center_known_free = int(block[factor // 2, factor // 2]) == FREE
             if occ_count == 0:
-                state[y, x] = FREE if free_count >= max(1, total // 4) else UNKNOWN
+                state[y, x] = FREE if center_known_free and free_count >= max(1, total // 4) else UNKNOWN
                 continue
 
             ratio = occ_count / float(total)
@@ -365,7 +411,7 @@ def build_pomp_plan_grid(known: np.ndarray) -> PlanGrid:
             spans_y = bool(np.min(ys) < center and np.max(ys) > center)
             if unsafe and (spans_x or spans_y):
                 state[y, x] = OCCUPIED
-            elif free_count > 0:
+            elif center_known_free:
                 state[y, x] = FREE
             else:
                 state[y, x] = UNKNOWN
@@ -385,10 +431,10 @@ def build_direct_plan_grid(known: np.ndarray) -> PlanGrid:
                 continue
             block = known[y * factor:(y + 1) * factor, x * factor:(x + 1) * factor]
             occ_count = int(np.count_nonzero(block == OCCUPIED))
-            free_count = int(np.count_nonzero(block == FREE))
+            center_known_free = int(block[factor // 2, factor // 2]) == FREE
             if occ_count > 0:
                 state[y, x] = OCCUPIED
-            elif free_count >= max(1, total // 4):
+            elif center_known_free:
                 state[y, x] = FREE
             else:
                 state[y, x] = UNKNOWN
@@ -839,6 +885,63 @@ def render_overhead(
     return img
 
 
+def build_scene_overhead_base(gt_occ: np.ndarray) -> np.ndarray:
+    rows, cols = gt_occ.shape
+    colors = np.zeros((rows, cols, 3), dtype=np.uint8)
+    colors[:, :] = (198, 197, 188)
+    occupied = np.argwhere(gt_occ)
+    for iy, ix in occupied:
+        x, y = fine_to_world(int(ix), int(iy))
+        colors[iy, ix] = scene_color_at(x, y)
+    return cv2.resize(np.flipud(colors), OVERHEAD_SIZE, interpolation=cv2.INTER_NEAREST)
+
+
+def render_scene_overhead(
+    algorithm: str,
+    scene_base: np.ndarray,
+    pose: Pose2D,
+    path: Sequence[Tuple[float, float]],
+    rays: Sequence[Tuple[float, float, bool]],
+    metrics: RunMetrics,
+    goal: Optional[Tuple[float, float]],
+) -> np.ndarray:
+    img = scene_base.copy()
+    start_px = world_to_overhead_px(START[0], START[1])
+    goal_px = world_to_overhead_px(GOAL[0], GOAL[1])
+    cv2.circle(img, start_px, 7, (50, 170, 80), -1)
+    cv2.circle(img, goal_px, 7, (50, 70, 220), -1)
+
+    robot_px = world_to_overhead_px(pose.x, pose.y)
+    for end_x, end_y, hit in rays[::LIDAR_DRAW_STRIDE]:
+        end_px = world_to_overhead_px(end_x, end_y)
+        cv2.line(img, robot_px, end_px, (120, 210, 250), 1, cv2.LINE_AA)
+        if hit:
+            cv2.circle(img, end_px, 2, (35, 40, 230), -1)
+
+    if len(path) > 1:
+        pts = np.array([world_to_overhead_px(x, y) for x, y in path], dtype=np.int32)
+        cv2.polylines(img, [pts], False, (25, 105, 245), 2, cv2.LINE_AA)
+
+    if goal is not None:
+        cv2.circle(img, world_to_overhead_px(goal[0], goal[1]), 5, (0, 190, 255), 2)
+
+    cv2.circle(img, robot_px, 8, (0, 150, 255), -1)
+    heading = (int(robot_px[0] + 18 * math.cos(pose.yaw)), int(robot_px[1] - 18 * math.sin(pose.yaw)))
+    cv2.arrowedLine(img, robot_px, heading, (0, 70, 255), 2, tipLength=0.35)
+
+    hud = [
+        f"{algorithm} | scene + navigation LiDAR",
+        f"goal_dist={metrics.goal_distance_m:.2f}m reached={'yes' if metrics.goal_reached else 'no'}",
+        f"wall_crossings={metrics.wall_crossing_segments} blocked_replans={metrics.blocked_motion_replans}",
+    ]
+    y = 22
+    for line in hud:
+        cv2.putText(img, line, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (10, 10, 10), 3, cv2.LINE_AA)
+        cv2.putText(img, line, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (250, 250, 250), 1, cv2.LINE_AA)
+        y += 22
+    return img
+
+
 def render_onboard(
     algorithm: str,
     gt_occ: np.ndarray,
@@ -855,7 +958,7 @@ def render_onboard(
     for i in range(CAMERA_BEAMS):
         rel = -0.5 * CAMERA_FOV_RAD + CAMERA_FOV_RAD * i / max(1, CAMERA_BEAMS - 1)
         angle = pose.yaw + rel
-        _, _, dist, hit = cast_ray(gt_occ, pose, angle, CAMERA_RANGE_M)
+        hit_x, hit_y, dist, hit = cast_ray(gt_occ, pose, angle, CAMERA_RANGE_M)
         if not hit:
             continue
         x0 = int(i * width / CAMERA_BEAMS)
@@ -864,7 +967,12 @@ def render_onboard(
         y0 = max(0, height // 2 - bar_h // 2)
         y1 = min(height - 1, height // 2 + bar_h // 2)
         shade = int(np.clip(230 - 24 * dist, 70, 225))
-        color = (shade - 20, shade - 12, shade)
+        base_b, base_g, base_r = scene_color_at(hit_x, hit_y)
+        color = (
+            int(np.clip(base_b * shade / 220.0, 35, 245)),
+            int(np.clip(base_g * shade / 220.0, 35, 245)),
+            int(np.clip(base_r * shade / 220.0, 35, 245)),
+        )
         cv2.rectangle(img, (x0, y0), (x1, y1), color, -1)
         cv2.line(img, (x0, y0), (x0, y1), (45, 48, 55), 1)
 
@@ -874,8 +982,6 @@ def render_onboard(
     if include_hud:
         cv2.putText(img, algorithm, (12, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (20, 20, 20), 3, cv2.LINE_AA)
         cv2.putText(img, algorithm, (12, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (250, 250, 250), 1, cv2.LINE_AA)
-        cv2.putText(img, f"free {metrics.free_coverage:.3f} | surface {metrics.surface_coverage:.3f}", (12, 51), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (20, 20, 20), 3, cv2.LINE_AA)
-        cv2.putText(img, f"free {metrics.free_coverage:.3f} | surface {metrics.surface_coverage:.3f}", (12, 51), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (250, 250, 250), 1, cv2.LINE_AA)
     return img
 
 
@@ -994,6 +1100,28 @@ def write_pose_sidecars(samples_dir: Path, sample_rows: Sequence[Dict[str, str]]
     }
 
 
+def write_planning_targets(algorithm_dir: Path, target_rows: Sequence[Dict[str, str]]) -> Path:
+    path = algorithm_dir / "planning_targets.csv"
+    fieldnames = [
+        "replan",
+        "phase",
+        "source",
+        "target_x",
+        "target_y",
+        "planner",
+        "map_variant",
+        "path_nodes",
+        "expanded",
+        "runtime_ms",
+        "failed_candidates",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(target_rows)
+    return path
+
+
 def append_lidar_scan_points(
     lidar_points: List[Tuple[int, int, float, float, float, float, float, float, float, bool]],
     scan_index: int,
@@ -1099,8 +1227,9 @@ def select_final_goal_plan(
     grid: PlanGrid,
     pose: Pose2D,
 ) -> Tuple[Optional[Tuple[int, int]], Optional[PlannerResult], int]:
-    start = nearest_free(grid, grid.world_to_grid(pose.x, pose.y), max_radius=20)
-    goal = nearest_free(grid, grid.world_to_grid(GOAL[0], GOAL[1]), max_radius=28)
+    start = nearest_free(grid, grid.world_to_grid(pose.x, pose.y), max_radius=4)
+    goal_idx = grid.world_to_grid(GOAL[0], GOAL[1])
+    goal = goal_idx if grid.is_free(*goal_idx) else nearest_free(grid, goal_idx, max_radius=2)
     if start is None or goal is None:
         return None, None, 1
 
@@ -1108,11 +1237,6 @@ def select_final_goal_plan(
     failed = 0
     if not plan.ok or len(plan.path) < 2:
         failed += 1
-        if planner != "weighted_astar":
-            fallback = PLANNERS["weighted_astar"](grid, start, goal)
-            fallback.fallback_used = True
-            fallback.planner_label = f"{planner}/goal_fallback_weighted_astar"
-            plan = fallback
     if not plan.ok or len(plan.path) < 2:
         return goal, plan, failed
     return goal, plan, failed
@@ -1129,19 +1253,23 @@ def run_algorithm(
     algorithm_dir = output_dir / run_label
     algorithm_dir.mkdir(parents=True, exist_ok=True)
     map_builder = MAP_BUILDERS[map_variant]
+    scene_base = build_scene_overhead_base(gt_occ)
     known = np.full_like(gt_occ, UNKNOWN, dtype=np.int8)
     pose = Pose2D(START[0], START[1], START[2])
     path_world: List[Tuple[float, float]] = [(pose.x, pose.y)]
     metrics = RunMetrics(algorithm=run_label, planner=planner, map_variant=map_variant)
     sample_rows: List[Dict[str, str]] = []
+    target_rows: List[Dict[str, str]] = []
     lidar_points: List[Tuple[int, int, float, float, float, float, float, float, float, bool]] = []
     scan_index = 0
 
     overhead_path = algorithm_dir / f"{run_label}_overhead_lidar.mp4"
+    overhead_scene_path = algorithm_dir / f"{run_label}_overhead_scene_lidar.mp4"
     onboard_path = algorithm_dir / f"{run_label}_onboard.mp4"
     overhead_writer = cv2.VideoWriter(str(overhead_path), cv2.VideoWriter_fourcc(*"mp4v"), VIDEO_FPS, OVERHEAD_SIZE)
+    overhead_scene_writer = cv2.VideoWriter(str(overhead_scene_path), cv2.VideoWriter_fourcc(*"mp4v"), VIDEO_FPS, OVERHEAD_SIZE)
     onboard_writer = cv2.VideoWriter(str(onboard_path), cv2.VideoWriter_fourcc(*"mp4v"), VIDEO_FPS, ONBOARD_SIZE)
-    if not overhead_writer.isOpened() or not onboard_writer.isOpened():
+    if not overhead_writer.isOpened() or not overhead_scene_writer.isOpened() or not onboard_writer.isOpened():
         raise RuntimeError("Failed to open OpenCV video writers.")
 
     _, _, rays = update_lidar_map(gt_occ, known, pose)
@@ -1152,10 +1280,10 @@ def run_algorithm(
     distance_since_sample = 0.0
     current_goal_world: Optional[Tuple[float, float]] = None
 
-    for replan in range(MAX_REPLANS):
+    for replan in range(MAX_REPLANS + MAX_GOAL_REPLANS):
         if replan > 0 and replan % 25 == 0:
             print(
-                f"  {run_label}: coverage replan={replan} steps={metrics.steps} "
+                f"  {run_label}: replan={replan} steps={metrics.steps} "
                 f"free={metrics.free_coverage:.3f} surface={metrics.surface_coverage:.3f} "
                 f"goal_dist={metrics.goal_distance_m:.2f}",
                 flush=True,
@@ -1163,17 +1291,34 @@ def run_algorithm(
         if metrics.steps >= MAX_STEPS:
             metrics.reason = "max_steps"
             break
-        if metrics.free_coverage >= TARGET_FREE_COVERAGE and metrics.surface_coverage >= TARGET_SURFACE_COVERAGE:
-            metrics.coverage_success = True
-            metrics.reason = "target_coverage_reached"
+        metrics.goal_distance_m = goal_distance(pose)
+        metrics.goal_reached = metrics.goal_distance_m <= GOAL_REACHED_RADIUS_M
+        metrics.coverage_success = (
+            metrics.free_coverage >= TARGET_FREE_COVERAGE
+            and metrics.surface_coverage >= TARGET_SURFACE_COVERAGE
+        )
+        if metrics.goal_reached:
+            metrics.success = True
+            metrics.reason = "goal_reached"
             break
 
         grid = map_builder(known)
-        goal_cell, plan, failed_plans = select_frontier_goal(planner, grid, known, pose)
+        phase = "final_goal"
+        target_source = "final_goal_known_free_connected"
+        goal_cell, plan, failed_plans = select_final_goal_plan(planner, grid, pose)
+        if plan is None or goal_cell is None or not plan.ok or len(plan.path) < 2:
+            if failed_plans:
+                metrics.failed_plans += failed_plans
+            phase = "frontier"
+            target_source = "frontier_from_lidar_known_map"
+            goal_cell, plan, failed_plans = select_frontier_goal(planner, grid, known, pose)
+        else:
+            metrics.final_goal_attempts += 1
+
         metrics.failed_plans += failed_plans
         metrics.replans += 1
         if plan is None or goal_cell is None:
-            metrics.reason = "no_reachable_frontier"
+            metrics.reason = "no_lidar_known_path_to_goal_or_frontier"
             break
 
         metrics.total_expanded_nodes += plan.expanded
@@ -1182,19 +1327,38 @@ def run_algorithm(
             metrics.planner_timeouts += 1
         if plan.fallback_used:
             metrics.planner_fallbacks += 1
-        current_goal_world = grid.grid_to_world(*goal_cell)
+        current_goal_world = GOAL if phase == "final_goal" else grid.grid_to_world(*goal_cell)
         path_points = [grid.grid_to_world(x, y) for x, y in plan.path]
         if len(path_points) < 2:
             metrics.reason = "degenerate_plan"
             break
-        log_plan(f"{run_label}/coverage", replan, plan, path_length_cells(grid, plan.path), failed_plans)
+        target_rows.append(
+            {
+                "replan": str(replan),
+                "phase": phase,
+                "source": target_source,
+                "target_x": f"{current_goal_world[0]:.6f}",
+                "target_y": f"{current_goal_world[1]:.6f}",
+                "planner": planner,
+                "map_variant": map_variant,
+                "path_nodes": str(len(plan.path)),
+                "expanded": str(plan.expanded),
+                "runtime_ms": f"{plan.runtime_ms:.6f}",
+                "failed_candidates": str(failed_plans),
+            }
+        )
+        log_plan(f"{run_label}/{phase}", replan, plan, path_length_cells(grid, plan.path), failed_plans)
 
+        steps_before_plan = metrics.steps
         for target_x, target_y in path_points[1:]:
             if metrics.steps >= MAX_STEPS:
                 break
-            fx, fy = world_to_fine(target_x, target_y)
-            if in_fine_bounds(fx, fy, gt_occ.shape[1], gt_occ.shape[0]) and gt_occ[fy, fx]:
-                mark_known_obstacle_patch(known, fx, fy)
+
+            hit_wall, hit_idx = segment_hits_obstacle(gt_occ, pose.x, pose.y, target_x, target_y)
+            if hit_wall:
+                if hit_idx is not None:
+                    mark_known_obstacle_patch(known, hit_idx[0], hit_idx[1])
+                metrics.blocked_motion_replans += 1
                 metrics.failed_plans += 1
                 break
 
@@ -1216,6 +1380,10 @@ def run_algorithm(
             update_coverage_metrics(metrics, known, gt_occ, surface_mask)
             metrics.goal_distance_m = goal_distance(pose)
             metrics.goal_reached = metrics.goal_distance_m <= GOAL_REACHED_RADIUS_M
+            metrics.coverage_success = (
+                metrics.free_coverage >= TARGET_FREE_COVERAGE
+                and metrics.surface_coverage >= TARGET_SURFACE_COVERAGE
+            )
 
             if distance_since_sample >= SAMPLE_DISTANCE_M and (new_free + 2 * new_occ) >= 4:
                 write_sample(algorithm_dir, run_label, gt_occ, pose, metrics, sample_rows)
@@ -1223,114 +1391,25 @@ def run_algorithm(
 
             if metrics.steps % VIDEO_STRIDE == 0:
                 overhead_writer.write(render_overhead(run_label, known, pose, path_world, rays, metrics, current_goal_world))
+                overhead_scene_writer.write(
+                    render_scene_overhead(run_label, scene_base, pose, path_world, rays, metrics, current_goal_world)
+                )
                 onboard_writer.write(render_onboard(run_label, gt_occ, pose, metrics))
 
-            if metrics.free_coverage >= TARGET_FREE_COVERAGE and metrics.surface_coverage >= TARGET_SURFACE_COVERAGE:
-                metrics.coverage_success = True
-                metrics.reason = "target_coverage_reached"
-                break
-
-        if metrics.coverage_success:
-            break
-
-    coverage_reason = metrics.reason or "coverage_loop_completed"
-    if metrics.goal_reached:
-        metrics.success = True
-        metrics.reason = f"{coverage_reason}; goal_already_reached"
-    elif metrics.steps >= MAX_STEPS:
-        metrics.success = False
-        metrics.reason = f"{coverage_reason}; goal_not_attempted_max_steps"
-    else:
-        for goal_replan in range(MAX_GOAL_REPLANS):
-            if metrics.steps >= MAX_STEPS:
-                metrics.reason = f"{coverage_reason}; goal_failed_max_steps"
-                break
-            metrics.goal_distance_m = goal_distance(pose)
-            metrics.goal_reached = metrics.goal_distance_m <= GOAL_REACHED_RADIUS_M
             if metrics.goal_reached:
                 metrics.success = True
-                metrics.reason = f"{coverage_reason}; goal_reached"
+                metrics.reason = "goal_reached"
                 break
 
-            grid = map_builder(known)
-            plan_grid = grid
-            goal_cell, plan, failed_plans = select_final_goal_plan(planner, grid, pose)
-            metrics.failed_plans += failed_plans
-            if (plan is None or not plan.ok or len(plan.path) < 2) and map_variant != "pomp_style_ogm":
-                fallback_grid = build_pomp_plan_grid(known)
-                fallback_goal, fallback_plan, fallback_failed = select_final_goal_plan("weighted_astar", fallback_grid, pose)
-                metrics.failed_plans += fallback_failed
-                if fallback_plan is not None:
-                    fallback_plan.fallback_used = True
-                    fallback_plan.planner_label = f"{planner}/goal_fallback_pomp_weighted_astar"
-                    plan_grid = fallback_grid
-                    goal_cell = fallback_goal
-                    plan = fallback_plan
-            metrics.replans += 1
-            metrics.final_goal_attempts += 1
-            if plan is None or goal_cell is None:
-                metrics.reason = f"{coverage_reason}; goal_no_plan"
+        if metrics.goal_reached:
+            break
+        if metrics.steps == steps_before_plan:
+            metrics.stalled_replans += 1
+            if metrics.stalled_replans >= 20:
+                metrics.reason = "stalled_without_progress"
                 break
-            metrics.total_expanded_nodes += plan.expanded
-            metrics.planning_runtime_ms += plan.runtime_ms
-            if plan.timed_out:
-                metrics.planner_timeouts += 1
-            if plan.fallback_used:
-                metrics.planner_fallbacks += 1
-            if not plan.ok or len(plan.path) < 2:
-                metrics.reason = f"{coverage_reason}; goal_plan_failed:{plan.reason}"
-                break
-
-            current_goal_world = GOAL
-            path_points = [plan_grid.grid_to_world(x, y) for x, y in plan.path]
-            log_plan(f"{run_label}/final_goal", goal_replan, plan, path_length_cells(plan_grid, plan.path), failed_plans)
-
-            for target_x, target_y in path_points[1:]:
-                if metrics.steps >= MAX_STEPS:
-                    break
-                fx, fy = world_to_fine(target_x, target_y)
-                if in_fine_bounds(fx, fy, gt_occ.shape[1], gt_occ.shape[0]) and gt_occ[fy, fx]:
-                    mark_known_obstacle_patch(known, fx, fy)
-                    metrics.failed_plans += 1
-                    break
-
-                dx = target_x - pose.x
-                dy = target_y - pose.y
-                step_dist = math.hypot(dx, dy)
-                if step_dist > 1.0e-6:
-                    pose = Pose2D(target_x, target_y, math.atan2(dy, dx))
-                else:
-                    pose = Pose2D(target_x, target_y, pose.yaw)
-                metrics.path_length_m += step_dist
-                distance_since_sample += step_dist
-                metrics.steps += 1
-                path_world.append((pose.x, pose.y))
-
-                scan_index += 1
-                new_free, new_occ, rays = update_lidar_map(gt_occ, known, pose)
-                append_lidar_scan_points(lidar_points, scan_index, pose, rays)
-                update_coverage_metrics(metrics, known, gt_occ, surface_mask)
-                metrics.goal_distance_m = goal_distance(pose)
-                metrics.goal_reached = metrics.goal_distance_m <= GOAL_REACHED_RADIUS_M
-
-                if distance_since_sample >= SAMPLE_DISTANCE_M:
-                    write_sample(algorithm_dir, run_label, gt_occ, pose, metrics, sample_rows)
-                    distance_since_sample = 0.0
-
-                if metrics.steps % VIDEO_STRIDE == 0:
-                    overhead_writer.write(render_overhead(run_label, known, pose, path_world, rays, metrics, current_goal_world))
-                    onboard_writer.write(render_onboard(run_label, gt_occ, pose, metrics))
-
-                if metrics.goal_reached:
-                    metrics.success = True
-                    metrics.reason = f"{coverage_reason}; goal_reached"
-                    break
-
-            if metrics.goal_reached:
-                break
-
-        if not metrics.goal_reached and "goal_" not in metrics.reason:
-            metrics.reason = f"{coverage_reason}; goal_not_reached"
+        else:
+            metrics.stalled_replans = 0
 
     if not metrics.reason:
         metrics.reason = "completed" if metrics.goal_reached else "stopped"
@@ -1338,12 +1417,15 @@ def run_algorithm(
     metrics.coverage_success = (
         metrics.free_coverage >= TARGET_FREE_COVERAGE and metrics.surface_coverage >= TARGET_SURFACE_COVERAGE
     )
+    metrics.wall_crossing_segments = count_route_wall_crossings(gt_occ, path_world)
     if metrics.replans:
         metrics.mean_plan_runtime_ms = metrics.planning_runtime_ms / metrics.replans
 
     overhead_writer.write(render_overhead(run_label, known, pose, path_world, rays, metrics, current_goal_world))
+    overhead_scene_writer.write(render_scene_overhead(run_label, scene_base, pose, path_world, rays, metrics, current_goal_world))
     onboard_writer.write(render_onboard(run_label, gt_occ, pose, metrics))
     overhead_writer.release()
+    overhead_scene_writer.release()
     onboard_writer.release()
 
     route_png = algorithm_dir / f"{run_label}_trajectory.png"
@@ -1370,12 +1452,14 @@ def run_algorithm(
         writer.writerows(sample_rows)
 
     sidecars = write_pose_sidecars(poses_csv.parent, sample_rows)
+    planning_targets_csv = write_planning_targets(algorithm_dir, target_rows)
     point_cloud_dir = algorithm_dir / "point_cloud"
     lidar_files = write_lidar_point_cloud(point_cloud_dir, lidar_points)
     occupied_ply = write_occupied_map_point_cloud(point_cloud_dir, known)
 
     metrics.route_png = str(route_png.relative_to(output_dir))
     metrics.overhead_lidar_video = str(overhead_path.relative_to(output_dir))
+    metrics.overhead_scene_lidar_video = str(overhead_scene_path.relative_to(output_dir))
     metrics.onboard_video = str(onboard_path.relative_to(output_dir))
     metrics.samples_dir = str((algorithm_dir / "samples").relative_to(output_dir))
     metrics.poses_csv = str(poses_csv.relative_to(output_dir))
@@ -1383,6 +1467,7 @@ def run_algorithm(
     metrics.poses_colmap_w2c = str(sidecars["poses_colmap_w2c"].relative_to(output_dir))
     metrics.camera_centers_world = str(sidecars["camera_centers_world"].relative_to(output_dir))
     metrics.image_name_mapping = str(sidecars["image_name_mapping"].relative_to(output_dir))
+    metrics.planning_targets_csv = str(planning_targets_csv.relative_to(output_dir))
     metrics.lidar_points_csv = str(lidar_files["lidar_points_csv"].relative_to(output_dir))
     metrics.lidar_points_ply = str(lidar_files["lidar_points_ply"].relative_to(output_dir))
     metrics.occupied_points_ply = str(occupied_ply.relative_to(output_dir))
@@ -1426,6 +1511,10 @@ def write_algorithm_metadata(
             "lidar_points_csv": metrics.lidar_points_csv,
             "lidar_points_ply": metrics.lidar_points_ply,
             "occupied_points_ply": metrics.occupied_points_ply,
+        },
+        "target_generation": {
+            "planning_targets_csv": metrics.planning_targets_csv,
+            "rule": "try final goal only after it is connected through the LiDAR-known free grid; otherwise select a frontier cell that is known free and adjacent to unknown space",
         },
         "metrics": metrics.__dict__,
         "route": [{"x": x, "y": y} for x, y in route],
@@ -1485,15 +1574,16 @@ def write_metrics(outputs: Path, metrics: Sequence[RunMetrics]) -> None:
 
 
 def render_metrics_table(path: Path, metrics: Sequence[RunMetrics]) -> None:
-    headers = ["run", "coverage", "goal", "goal m", "free", "surface", "path m", "samples", "lidar pts"]
+    headers = ["run", "goal", "goal m", "walls", "blocks", "free", "surface", "path m", "samples", "lidar pts"]
     rows = []
     for m in metrics:
         rows.append(
             [
                 m.algorithm,
-                "yes" if m.coverage_success else "no",
                 "yes" if m.goal_reached else "no",
                 f"{m.goal_distance_m:.2f}",
+                str(m.wall_crossing_segments),
+                str(m.blocked_motion_replans),
                 f"{m.free_coverage:.3f}",
                 f"{m.surface_coverage:.3f}",
                 f"{m.path_length_m:.1f}",
@@ -1501,7 +1591,7 @@ def render_metrics_table(path: Path, metrics: Sequence[RunMetrics]) -> None:
                 str(m.lidar_points),
             ]
         )
-    cell_w = [230, 90, 70, 80, 80, 90, 90, 90, 100]
+    cell_w = [230, 70, 80, 70, 80, 80, 90, 90, 90, 100]
     row_h = 34
     width = sum(cell_w) + 2
     height = row_h * (len(rows) + 1) + 2
@@ -1531,23 +1621,25 @@ def render_metrics_table(path: Path, metrics: Sequence[RunMetrics]) -> None:
 
 def write_readme(output_dir: Path, metrics: Sequence[RunMetrics]) -> None:
     lines = [
-        "# Online LIO Coverage + Goal-Reach Simulation",
+        "# Online LIO Goal-Reach Simulation",
         "",
-        "This experiment starts from an unknown local map. A simulated 2D LiDAR scan updates free/occupied cells, while the pose is treated as drift-free LIO output. Each run first performs frontier coverage for reconstruction sampling, then explicitly replans to the final B goal and records whether the robot reaches it.",
+        "This experiment starts from an unknown local map. A simulated 2D LiDAR scan updates free/occupied cells, while the pose is treated as drift-free LIO output. Each replan first tries the final B goal only if it is connected through the LiDAR-known free grid; otherwise it selects a frontier cell that is known free and adjacent to unknown space. Once B is reached, the run stops.",
         "",
         "Generated artifacts:",
         "- `metrics.csv`, `metrics.json`, `metrics_table.png`",
         "- `route_comparison.png`",
-        "- Per run: `*_trajectory.png`, `*_overhead_lidar.mp4`, `*_onboard.mp4`",
+        "- Per run: `*_trajectory.png`, `*_overhead_lidar.mp4`, `*_overhead_scene_lidar.mp4`, `*_onboard.mp4`",
         "- Per run camera export: `samples/images/*.png`, `samples/poses.csv`, `samples/transforms.json`, `samples/poses_colmap_w2c.txt`, `samples/camera_centers_world.txt`, `samples/image_name_mapping.csv`",
         "- Per run LiDAR point cloud: `point_cloud/lidar_points_world.csv`, `point_cloud/lidar_points_world.ply`, `point_cloud/final_known_occupied_points_world.ply`",
+        "- Per run target log: `planning_targets.csv`",
         "",
         "Runs:",
     ]
     for metric in metrics:
         lines.append(
-            f"- `{metric.algorithm}`: coverage_success={metric.coverage_success}, "
-            f"goal_reached={metric.goal_reached}, goal_distance={metric.goal_distance_m:.2f} m, "
+            f"- `{metric.algorithm}`: goal_reached={metric.goal_reached}, "
+            f"goal_distance={metric.goal_distance_m:.2f} m, wall_crossings={metric.wall_crossing_segments}, "
+            f"blocked_replans={metric.blocked_motion_replans}, "
             f"free={metric.free_coverage:.3f}, surface={metric.surface_coverage:.3f}, "
             f"path={metric.path_length_m:.1f} m, samples={metric.reconstruction_samples}, "
             f"lidar_points={metric.lidar_points}"
@@ -1558,6 +1650,9 @@ def write_readme(output_dir: Path, metrics: Sequence[RunMetrics]) -> None:
             "Notes:",
             "- This is an online coverage simulation, not a full FAST-LIVO2 graph-optimization integration.",
             "- Ground-truth geometry is used only by the simulator to synthesize LiDAR/camera observations; the planner starts with an unknown map.",
+            "- Unknown planning cells are not traversable. Planner targets are generated only from the current LiDAR-known map.",
+            "- Physical execution checks every segment against the simulated scene before adding it to the trajectory; `wall_crossing_segments` should remain zero.",
+            "- The onboard video is a simulated RGB view of the constructed scene and does not include LiDAR overlays.",
             "- `direct_ogm` uses a conservative direct coarse occupancy-grid projection.",
             "- `pomp_style_ogm` uses the POMP-style sub-cell projection.",
             "- `theta_star` is implemented as bounded weighted A* followed by cached Theta-style line-of-sight shortcut smoothing; the online loop does not run full Theta* global search.",

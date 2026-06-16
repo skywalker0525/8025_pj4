@@ -244,18 +244,18 @@ exports/livo_image_pose/complex_construction_full_20260616_v3/
 
 It contains 1023 RGB images, 1023 timestamped camera poses in `poses.csv`, COLMAP-style `sparse/0/`, `poses_colmap_w2c.txt`, `camera_centers_world.txt`, `transforms.json`, `camera.mp4`, and `overhead.mp4`. The mission reached every waypoint from `P1` through `B` and finished with `NAVIGATION_SUCCEEDED`.
 
-### Online LIO/POMP Coverage Simulation
+### Online LIO/POMP Goal-Reach Simulation
 
-For unknown or semi-known scene experiments, run the online coverage simulator. It starts from an unknown local grid, synthesizes LiDAR observations against the complex construction scene, treats the current pose as drift-free LIO output, plans frontier coverage for reconstruction sampling, then explicitly replans to the final B goal and records whether the robot reached it.
+For unknown or semi-known scene experiments, run the online simulator. It starts from an unknown local grid, synthesizes LiDAR observations against the complex construction scene, and treats the current pose as drift-free LIO output. Each replan first tries the final B goal only if B is connected through the LiDAR-known free grid; otherwise it selects a frontier cell that is known free and adjacent to unknown space. Once B is reached, the run stops and does not return to chase coverage targets.
 
 Run the safe full comparison:
 
 ```bash
 cd /ws
-python3 scripts/simulate_online_lio_pomp_coverage.py /ws/exports/online_lio_pomp_coverage/complex_construction_goalcheck_pointcloud_20260616_v2 --planner-timeout 5 --theta-timeout 5 --max-expanded-nodes 50000 --quiet-planner-log
+python3 scripts/simulate_online_lio_pomp_coverage.py /ws/exports/online_lio_pomp_coverage/complex_construction_no_cheat_goal_lidar_20260616_v3 --planner-timeout 5 --theta-timeout 5 --max-expanded-nodes 50000 --quiet-planner-log
 ```
 
-The default comparison runs two map representations, `direct_ogm` and `pomp_style_ogm`, against Dijkstra, A*, Weighted A*, and `theta_star`. In this simulator, `theta_star` intentionally does not run full Theta* global search in the online loop; it uses bounded Weighted A* as the main planner and then applies cached Theta-style line-of-sight shortcut smoothing to the returned path. This prevents high CPU load on complex maps while preserving an any-angle path-smoothing comparison.
+The default comparison runs two map representations, `direct_ogm` and `pomp_style_ogm`, against Dijkstra, A*, Weighted A*, and `theta_star`. Unknown planning cells are not traversable. Every executed segment is checked against the simulated scene before it is added to the trajectory; `wall_crossing_segments` should remain zero. In this simulator, `theta_star` intentionally does not run full Theta* global search in the online loop; it uses bounded Weighted A* as the main planner and then applies cached Theta-style line-of-sight shortcut smoothing to the returned path.
 
 Useful safety options:
 
@@ -268,18 +268,20 @@ python3 scripts/simulate_online_lio_pomp_coverage.py /ws/exports/online_lio_pomp
 Verified local output:
 
 ```text
-exports/online_lio_pomp_coverage/complex_construction_goalcheck_pointcloud_20260616_v2/
+exports/online_lio_pomp_coverage/complex_construction_no_cheat_goal_lidar_20260616_v3/
 ```
 
 Each run folder contains:
 
 - `*_overhead_lidar.mp4`: top-down LiDAR mapping and route video.
-- `*_onboard.mp4`: simulated onboard camera video.
+- `*_overhead_scene_lidar.mp4`: top-down constructed scene with navigation LiDAR overlay.
+- `*_onboard.mp4`: simulated onboard RGB camera video without LiDAR overlay.
 - `*_trajectory.png`: route plot for that run.
 - `samples/images/*.png` and `samples/poses.csv`: reconstruction samples and corresponding poses.
 - `samples/transforms.json`, `samples/poses_colmap_w2c.txt`, `samples/camera_centers_world.txt`, and `samples/image_name_mapping.csv`: 3DGS/COLMAP-style sidecar pose files.
 - `point_cloud/lidar_points_world.csv` and `point_cloud/lidar_points_world.ply`: accumulated simulated LiDAR scan endpoints in world coordinates.
 - `point_cloud/final_known_occupied_points_world.ply`: final occupied-cell point cloud from the discovered map.
+- `planning_targets.csv`: each replan target and its source (`frontier_from_lidar_known_map` or `final_goal_known_free_connected`).
 - `metadata.json`: route and run metadata.
 
 The root output folder contains:
@@ -288,18 +290,18 @@ The root output folder contains:
 - `metrics_table.png`: rendered metric table.
 - `route_comparison.png`: route comparison across planners.
 
-Final online coverage and goal-check summary:
+Final no-cheat goal-reach summary:
 
-| Run | Coverage reached | Goal reached | Goal dist m | Free coverage | Surface coverage | Path m | Samples | LiDAR points |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| direct_ogm_dijkstra | yes | yes | 0.22 | 0.776 | 0.609 | 77.2 | 89 | 47808 |
-| direct_ogm_astar | yes | yes | 0.36 | 0.778 | 0.599 | 95.5 | 101 | 61344 |
-| direct_ogm_weighted_astar | yes | yes | 0.36 | 0.774 | 0.601 | 99.5 | 98 | 63360 |
-| direct_ogm_theta_star | no | yes | 0.10 | 0.688 | 0.459 | 93.8 | 35 | 8784 |
-| pomp_style_ogm_dijkstra | yes | yes | 0.22 | 0.782 | 0.624 | 94.9 | 99 | 61056 |
-| pomp_style_ogm_astar | yes | yes | 0.36 | 0.783 | 0.626 | 90.9 | 93 | 58320 |
-| pomp_style_ogm_weighted_astar | yes | yes | 0.36 | 0.730 | 0.587 | 99.4 | 96 | 63936 |
-| pomp_style_ogm_theta_star | yes | yes | 0.10 | 0.820 | 0.591 | 105.1 | 42 | 9072 |
+| Run | Goal reached | Goal dist m | Wall crossings | Blocked replans | Free coverage | Surface coverage | Path m | Samples | LiDAR points |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| direct_ogm_dijkstra | yes | 0.22 | 0 | 0 | 0.677 | 0.471 | 38.0 | 46 | 24048 |
+| direct_ogm_astar | yes | 0.36 | 0 | 0 | 0.689 | 0.495 | 42.3 | 51 | 27072 |
+| direct_ogm_weighted_astar | no | 13.11 | 0 | 0 | 0.262 | 0.167 | 11.7 | 14 | 7344 |
+| direct_ogm_theta_star | yes | 0.22 | 0 | 0 | 0.630 | 0.401 | 51.1 | 28 | 6480 |
+| pomp_style_ogm_dijkstra | yes | 0.36 | 0 | 0 | 0.663 | 0.463 | 37.9 | 46 | 23904 |
+| pomp_style_ogm_astar | yes | 0.36 | 0 | 0 | 0.707 | 0.530 | 57.7 | 64 | 36144 |
+| pomp_style_ogm_weighted_astar | yes | 0.36 | 0 | 0 | 0.685 | 0.496 | 46.4 | 55 | 29808 |
+| pomp_style_ogm_theta_star | yes | 0.36 | 0 | 0 | 0.612 | 0.367 | 37.2 | 24 | 6048 |
 
 ## Automatic Mode
 
