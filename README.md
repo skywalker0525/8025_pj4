@@ -244,6 +244,56 @@ exports/livo_image_pose/complex_construction_full_20260616_v3/
 
 It contains 1023 RGB images, 1023 timestamped camera poses in `poses.csv`, COLMAP-style `sparse/0/`, `poses_colmap_w2c.txt`, `camera_centers_world.txt`, `transforms.json`, `camera.mp4`, and `overhead.mp4`. The mission reached every waypoint from `P1` through `B` and finished with `NAVIGATION_SUCCEEDED`.
 
+### Online LIO/POMP Coverage Simulation
+
+For unknown or semi-known scene experiments, run the online coverage simulator. It starts from an unknown local grid, synthesizes LiDAR observations against the complex construction scene, treats the current pose as drift-free LIO output, projects the discovered local map into a POMP-style planning grid, and plans coverage/frontier goals for reconstruction sampling.
+
+Run the safe full comparison:
+
+```bash
+cd /ws
+python3 scripts/simulate_online_lio_pomp_coverage.py /ws/exports/online_lio_pomp_coverage/complex_construction_safe_20260616 --planner-timeout 5 --theta-timeout 5 --max-expanded-nodes 50000 --quiet-planner-log
+```
+
+The online comparison includes Dijkstra, A*, Weighted A*, and `theta_star`. In this simulator, `theta_star` intentionally does not run full Theta* global search in the online loop; it uses bounded Weighted A* as the main planner and then applies cached Theta-style line-of-sight shortcut smoothing to the returned path. This prevents high CPU load on complex maps while preserving an any-angle path-smoothing comparison.
+
+Useful safety options:
+
+```bash
+python3 scripts/simulate_online_lio_pomp_coverage.py /ws/exports/online_lio_pomp_coverage/no_theta --skip-theta-star --quiet-planner-log
+python3 scripts/simulate_online_lio_pomp_coverage.py /ws/exports/online_lio_pomp_coverage/debug_theta --algorithms theta_star --theta-timeout 5 --planner-timeout 5 --max-expanded-nodes 50000
+```
+
+Verified local output:
+
+```text
+exports/online_lio_pomp_coverage/complex_construction_safe_20260616/
+```
+
+Each planner folder contains:
+
+- `*_overhead_lidar.mp4`: top-down LiDAR mapping and route video.
+- `*_onboard.mp4`: simulated onboard camera video.
+- `*_trajectory.png`: route plot for that planner.
+- `samples/images/*.png` and `samples/poses.csv`: reconstruction samples and corresponding poses.
+- `metadata.json`: route and run metadata.
+
+The root output folder contains:
+
+- `metrics.csv` and `metrics.json`: numeric comparison.
+- `metrics_table.png`: rendered metric table.
+- `route_comparison.png`: route comparison across planners.
+- `patches/simulate_online_lio_pomp_coverage_safe_theta.diff`: full patch for the safe online simulator.
+
+Final online coverage summary:
+
+| Planner | Success | Free coverage | Surface coverage | Path m | Samples | Expanded nodes | Plan ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dijkstra | yes | 0.771292 | 0.585387 | 72.755749 | 72 | 37371 | 346.103034 |
+| A* | no | 0.757851 | 0.576660 | 69.942850 | 68 | 8057 | 76.494268 |
+| Weighted A* | yes | 0.728656 | 0.580424 | 80.591378 | 74 | 2895 | 26.440310 |
+| Theta-style shortcut | no | 0.622218 | 0.375941 | 45.106140 | 23 | 587 | 6.441236 |
+
 ## Automatic Mode
 
 1. Open Gazebo/RViz and the Web Dashboard.
