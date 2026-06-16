@@ -24,6 +24,9 @@ def generate_launch_description():
     max_frames = LaunchConfiguration('max_frames')
     sample_period_sec = LaunchConfiguration('sample_period_sec')
     video_fps = LaunchConfiguration('video_fps')
+    pointcloud_sample_period_sec = LaunchConfiguration('pointcloud_sample_period_sec')
+    pointcloud_stride = LaunchConfiguration('pointcloud_stride')
+    max_pointcloud_scans = LaunchConfiguration('max_pointcloud_scans')
     pose_parent_frame = LaunchConfiguration('pose_parent_frame')
     camera_frame = LaunchConfiguration('camera_frame')
     spawn_overhead_camera = LaunchConfiguration('spawn_overhead_camera')
@@ -129,6 +132,33 @@ def generate_launch_description():
         ],
     )
 
+    pointcloud_exporter = Node(
+        package='my_robot_mission',
+        executable='pointcloud_exporter_node',
+        name='pointcloud_exporter_node',
+        output='screen',
+        parameters=[
+            {'use_sim_time': True},
+            {'pointcloud_topic': '/points_raw'},
+            {'overhead_image_topic': '/overhead_rgb_sensor/image_raw'},
+            {'output_dir': output_dir},
+            {'run_name': run_name},
+            {'sample_period_sec': pointcloud_sample_period_sec},
+            {'point_stride': pointcloud_stride},
+            {'max_scans': max_pointcloud_scans},
+            {'pose_parent_frame': pose_parent_frame},
+            {'mission_state_topic': '/mission/state'},
+            {'record_states': ['NAVIGATING']},
+            {'finish_states': ['DONE', 'STOPPED']},
+            {'overlay_filename': 'overhead_lidar.mp4'},
+            {'overlay_fps': video_fps},
+            {'overhead_camera_x': overhead_camera_x},
+            {'overhead_camera_y': overhead_camera_y},
+            {'overhead_camera_z': overhead_camera_z},
+            {'overhead_camera_yaw': overhead_camera_yaw},
+        ],
+    )
+
     start_auto = TimerAction(
         period=35.0,
         actions=[
@@ -196,6 +226,9 @@ def generate_launch_description():
         DeclareLaunchArgument('max_frames', default_value='0'),
         DeclareLaunchArgument('sample_period_sec', default_value='0.25'),
         DeclareLaunchArgument('video_fps', default_value='10.0'),
+        DeclareLaunchArgument('pointcloud_sample_period_sec', default_value='0.50'),
+        DeclareLaunchArgument('pointcloud_stride', default_value='4'),
+        DeclareLaunchArgument('max_pointcloud_scans', default_value='0'),
         DeclareLaunchArgument('pose_parent_frame', default_value='map'),
         DeclareLaunchArgument('camera_frame', default_value='camera_optical_frame'),
         DeclareLaunchArgument('spawn_overhead_camera', default_value='true'),
@@ -208,5 +241,6 @@ def generate_launch_description():
         exporter,
         camera_video,
         overhead_video,
+        pointcloud_exporter,
         start_auto,
     ])

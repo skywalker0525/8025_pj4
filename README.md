@@ -244,6 +244,30 @@ exports/livo_image_pose/complex_construction_full_20260616_v3/
 
 It contains 1023 RGB images, 1023 timestamped camera poses in `poses.csv`, COLMAP-style `sparse/0/`, `poses_colmap_w2c.txt`, `camera_centers_world.txt`, `transforms.json`, `camera.mp4`, and `overhead.mp4`. The mission reached every waypoint from `P1` through `B` and finished with `NAVIGATION_SUCCEEDED`.
 
+Generate 3D planner-navigation comparison waypoint files from the benchmark metrics:
+
+```bash
+cd /ws
+python3 scripts/export_planner_waypoints.py /ws/exports/planner_waypoints/complex_construction_3d_nav --successful-only
+```
+
+This writes eight planner-labelled YAML files plus `summary.csv` for `direct_ogm` and `pomp_style_ogm` with Dijkstra, A*, Weighted A*, and Theta*. The summary keeps each planner's original source path length and clearance metrics. The default execution mode is `nav_safe_milestones`, which uses the verified 3D Gazebo mission waypoints for Nav2 execution while preserving the planner-source metrics for comparison. Use `--nav-mode clearance_filter` or `--nav-mode raw_simplified` only when Nav2 failures are acceptable research data.
+
+Run one 3D planner-labelled capture with the real robot model, onboard camera, overhead camera, and `/points_raw` export:
+
+```bash
+cd /ws
+source install/setup.bash
+xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 ros2 launch my_robot_navigation complex_construction_livo_dataset_capture.launch.py \
+  run_name:=pomp_style_ogm_weighted_astar_3d \
+  waypoints_file:=/ws/exports/planner_waypoints/complex_construction_3d_nav/pomp_style_ogm_weighted_astar_3d.yaml \
+  sample_period_sec:=0.30 \
+  pointcloud_sample_period_sec:=0.50 \
+  pointcloud_stride:=4
+```
+
+The 3D capture output includes `camera.mp4`, `overhead.mp4`, `overhead_lidar.mp4`, `images/*.png`, camera pose files, and `point_cloud/lidar_points_world.{csv,ply}`. A short smoke test was verified at `exports/livo_image_pose/pomp_style_ogm_weighted_astar_3d_smoke_yawfix_20260616/`: it exported 30 image/pose pairs, 5 LiDAR scans, 7008 world-frame points, and reached waypoint `W001` before the run was stopped.
+
 ### Online LIO/POMP Goal-Reach Simulation
 
 For unknown or semi-known scene experiments, run the online simulator. It starts from an unknown local grid, synthesizes LiDAR observations against the complex construction scene, and treats the current pose as drift-free LIO output. Each replan first tries the final B goal only if B is connected through the LiDAR-known free grid; otherwise it selects a frontier cell that is known free and adjacent to unknown space. Once B is reached, the run stops and does not return to chase coverage targets.

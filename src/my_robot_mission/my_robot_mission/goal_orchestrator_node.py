@@ -34,6 +34,7 @@ class GoalOrchestratorNode(Node):
         if missing_names:
             raise RuntimeError(f'mission.goal_sequence references unknown point(s): {missing_names}')
         self.goal_sequence_names = sequence_names
+        self.continue_on_failure = bool(mission_cfg.get('continue_on_failure', False))
         self.apriltag_target = cfg.get('apriltag_target', {})
         frames = cfg.get('frames', {})
         self.target_frame = frames.get('target_frame', 'map')
@@ -62,6 +63,7 @@ class GoalOrchestratorNode(Node):
         self.running_auto_sequence = False
         self.current_goal_index = 0
         self.active_goal_name = ''
+        self.failed_goal_names = []
         self.finish_timer = None
         self.nav_ready_announced = False
         self.readiness_timer = self.create_timer(2.0, self.publish_readiness_when_available)
@@ -130,6 +132,7 @@ class GoalOrchestratorNode(Node):
     def start_auto_sequence(self) -> None:
         self.running_auto_sequence = True
         self.current_goal_index = 0
+        self.failed_goal_names = []
         self.publish_event(f'AUTO_SEQUENCE_STARTED:{",".join(self.goal_sequence_names)}')
         self.send_sequence_goal()
 
@@ -232,6 +235,24 @@ class GoalOrchestratorNode(Node):
         else:
             self.get_logger().warn(f'Navigation did not succeed. Status code: {result.status}')
             self.publish_event(f'NAVIGATION_FAILED_STATUS_{result.status}')
+            if self.running_auto_sequence:
+                self.failed_goal_names.append(self.active_goal_name)
+                self.publish_event(
+                    f'NAVIGATION_WAYPOINT_FAILED:{self.active_goal_name}:STATUS_{result.status}'
+                )
+                if self.continue_on_failure and self.current_goal_index + 1 < len(self.goal_sequence_names):
+                    self.current_goal_index += 1
+                    self.goal_handle = None
+                    self.send_sequence_goal()
+                    return
+                if self.continue_on_failure:
+                    self.publish_event(
+                        f'AUTO_SEQUENCE_COMPLETED_WITH_FAILURES:{",".join(self.failed_goal_names)}'
+                    )
+                    self.running_auto_sequence = False
+                    self.publish_state('DONE')
+                    self.goal_handle = None
+                    return
             if self.robot_is_near_apriltag():
                 self.publish_event('NAVIGATION_FALLBACK_APRILTAG_REACHED')
                 self.publish_state('DONE')
